@@ -9,8 +9,9 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 import asyncio
 import sqlite3
-from hashlib import sha1
-import hmac
+import aiohttp
+import uuid
+import base64
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO)
@@ -18,8 +19,8 @@ logging.basicConfig(level=logging.INFO)
 # Конфигурация из переменных окружения
 BOT_TOKEN = os.getenv('BOT_TOKEN')
 CHANNEL_ID = os.getenv('CHANNEL_ID')  # Например: @your_channel или -1001234567890
-YOOMONEY_WALLET = os.getenv('YOOMONEY_WALLET')
-YOOMONEY_SECRET = os.getenv('YOOMONEY_SECRET')
+YOOKASSA_SHOP_ID = os.getenv('YOOKASSA_SHOP_ID')  # 1119525
+YOOKASSA_SECRET_KEY = os.getenv('YOOKASSA_SECRET_KEY')
 ADMIN_ID = int(os.getenv('ADMIN_ID', 0))  # Твой Telegram ID
 
 # Тарифы
@@ -52,6 +53,7 @@ def init_db():
                   amount REAL,
                   tariff TEXT,
                   status TEXT,
+                  yookassa_id TEXT,
                   created_at TEXT)''')
     conn.commit()
     conn.close()
@@ -84,19 +86,99 @@ def is_subscription_active(user_id):
     subscription_until = datetime.fromisoformat(user[2])
     return datetime.now() < subscription_until
 
-def create_payment(user_id, amount, tariff):
+def create_payment(user_id, amount, tariff, yookassa_id):
     conn = sqlite3.connect('subscriptions.db')
     c = conn.cursor()
     payment_id = f"{user_id}_{int(datetime.now().timestamp())}"
     created_at = datetime.now().isoformat()
     
     c.execute('''INSERT INTO payments 
-                 (payment_id, user_id, amount, tariff, status, created_at)
-                 VALUES (?, ?, ?, ?, ?, ?)''',
-              (payment_id, user_id, amount, tariff, 'pending', created_at))
+                 (payment_id, user_id, amount, tariff, status, yookassa_id, created_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?)''',
+              (payment_id, user_id, amount, tariff, 'pending', yookassa_id, created_at))
     conn.commit()
     conn.close()
     return payment_id
+
+def update_payment_status(yookassa_id, status):
+    conn = sqlite3.connect('subscriptions.db')
+    c = conn.cursor()
+    c.execute('UPDATE payments SET status = ? WHERE yookassa_id = ?', (status, yookassa_id))
+    conn.commit()
+    conn.close()
+
+def get_payment_by_yookassa_id(yookassa_id):
+    conn = sqlite3.connect('subscriptions.db')
+    c = conn.cursor()
+    c.execute('SELECT * FROM payments WHERE yookassa_id = ?', (yookassa_id,))
+    payment = c.fetchone()
+    conn.close()
+    return payment
+
+# ЮKassa API
+async def create_yookassa_payment(amount, description, user_id):
+    """Создание платежа в ЮKassa"""
+    url = "https://api.yookassa.ru/v3/payments"
+    
+    # Создаем idempotence key для безопасности
+    idempotence_key = str(uuid.uuid4())
+    
+    # Базовая авторизация
+    auth_string = f"{YOOKASSA_SHOP_ID}:{YOOKASSA_SECRET_KEY}"
+    auth_bytes = auth_string.encode('utf-8')
+    auth_b64 = base64.b64encode(auth_bytes).decode('utf-8')
+    
+    headers = {
+        "Idempotence-Key": idempotence_key,
+        "Content-Type": "application/json",
+        "Authorization": f"Basic {auth_b64}"
+    }
+    
+    data = {
+        "amount": {
+            "value": f"{amount:.2f}",
+            "currency": "RUB"
+        },
+        "confirmation": {
+            "type": "redirect",
+            "return_url": f"https://t.me/{(await bot.get_me()).username}"
+        },
+        "capture": True,
+        "description": description,
+        "metadata": {
+            "user_id": str(user_id)
+        }
+    }
+    
+    async with aiohttp.ClientSession() as session:
+        async with session.post(url, json=data, headers=headers) as response:
+            if response.status == 200:
+                result = await response.json()
+                return result
+            else:
+                logging.error(f"YooKassa error: {response.status}, {await response.text()}")
+                return None
+
+async def check_yookassa_payment(payment_id):
+    """Проверка статуса платежа в ЮKassa"""
+    url = f"https://api.yookassa.ru/v3/payments/{payment_id}"
+    
+    auth_string = f"{YOOKASSA_SHOP_ID}:{YOOKASSA_SECRET_KEY}"
+    auth_bytes = auth_string.encode('utf-8')
+    auth_b64 = base64.b64encode(auth_bytes).decode('utf-8')
+    
+    headers = {
+        "Authorization": f"Basic {auth_b64}"
+    }
+    
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url, headers=headers) as response:
+            if response.status == 200:
+                result = await response.json()
+                return result
+            else:
+                logging.error(f"YooKassa check error: {response.status}")
+                return None
 
 # Клавиатуры
 def get_main_menu():
@@ -178,57 +260,133 @@ async def process_tariff(callback: types.CallbackQuery):
     tariff_code = callback.data
     tariff = TARIFFS[tariff_code]
     
-    # Создаем платеж
-    payment_id = create_payment(user_id, tariff['price'], tariff_code)
+    await callback.answer("⏳ Создаем платеж...", show_alert=False)
     
-    # Формируем ссылку на оплату ЮMoney
-    payment_url = (
-        f"https://yoomoney.ru/quickpay/confirm?"
-        f"receiver={YOOMONEY_WALLET}"
-        f"&quickpay-form=shop"
-        f"&targets=Подписка {tariff['name']}"
-        f"&paymentType=SB"
-        f"&sum={tariff['price']}"
-        f"&label={payment_id}"
+    # Создаем платеж в ЮKassa
+    payment = await create_yookassa_payment(
+        amount=tariff['price'],
+        description=f"Подписка: {tariff['name']}",
+        user_id=user_id
     )
     
+    if not payment:
+        await callback.message.edit_text(
+            "❌ Ошибка создания платежа. Попробуйте позже.",
+            reply_markup=get_main_menu()
+        )
+        return
+    
+    # Сохраняем платеж в БД
+    payment_id = create_payment(user_id, tariff['price'], tariff_code, payment['id'])
+    
+    # Получаем ссылку на оплату
+    confirmation_url = payment['confirmation']['confirmation_url']
+    
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💳 Оплатить", url=payment_url)],
-        [InlineKeyboardButton(text="✅ Я оплатил", callback_data=f"check_{payment_id}")],
+        [InlineKeyboardButton(text="💳 Оплатить", url=confirmation_url)],
+        [InlineKeyboardButton(text="🔄 Проверить оплату", callback_data=f"check_{payment['id']}")],
         [InlineKeyboardButton(text="◀️ Назад", callback_data="back")]
     ])
     
     await callback.message.edit_text(
         f"📦 Вы выбрали: **{tariff['name']}**\n"
         f"💰 Стоимость: {tariff['price']}₽\n\n"
-        f"1️⃣ Нажмите кнопку 'Оплатить'\n"
-        f"2️⃣ Оплатите через ЮMoney\n"
-        f"3️⃣ Вернитесь и нажмите 'Я оплатил'\n\n"
-        f"⚠️ После оплаты доступ откроется автоматически!",
+        f"1️⃣ Нажмите 'Оплатить'\n"
+        f"2️⃣ Завершите оплату\n"
+        f"3️⃣ Вернитесь и нажмите 'Проверить оплату'\n\n"
+        f"⚠️ Доступ откроется автоматически после оплаты!",
         reply_markup=keyboard,
         parse_mode="Markdown"
     )
-    
-    await callback.answer()
 
 @dp.callback_query(F.data.startswith("check_"))
 async def check_payment(callback: types.CallbackQuery):
-    payment_id = callback.data.replace("check_", "")
+    yookassa_payment_id = callback.data.replace("check_", "")
     
-    await callback.answer(
-        "⏳ Проверяем оплату... Это может занять несколько секунд.",
-        show_alert=True
-    )
+    await callback.answer("⏳ Проверяем оплату...", show_alert=False)
     
-    # Здесь должна быть проверка через ЮMoney API
-    # Для демо просим написать админу
-    await callback.message.edit_text(
-        "✅ Платеж получен!\n\n"
-        "🔄 Обрабатываем ваш платеж...\n"
-        "Доступ будет предоставлен в течение 5 минут.\n\n"
-        "Если что-то пошло не так, напишите @admin",
-        reply_markup=get_main_menu()
-    )
+    # Проверяем статус в ЮKassa
+    payment_info = await check_yookassa_payment(yookassa_payment_id)
+    
+    if not payment_info:
+        await callback.answer("❌ Ошибка проверки платежа", show_alert=True)
+        return
+    
+    status = payment_info.get('status')
+    
+    if status == 'succeeded':
+        # Платеж успешен!
+        payment = get_payment_by_yookassa_id(yookassa_payment_id)
+        if payment:
+            user_id = payment[1]
+            tariff_code = payment[3]
+            tariff = TARIFFS[tariff_code]
+            username = callback.from_user.username or "unknown"
+            
+            # Обновляем статус платежа
+            update_payment_status(yookassa_payment_id, 'completed')
+            
+            # Добавляем пользователя с подпиской
+            add_user(user_id, username, tariff['days'], tariff_code)
+            
+            try:
+                # Создаем инвайт в канал
+                if tariff_code == 'forever':
+                    # Для навсегда - без ограничения времени
+                    invite_link = await bot.create_chat_invite_link(
+                        CHANNEL_ID,
+                        member_limit=1
+                    )
+                else:
+                    invite_link = await bot.create_chat_invite_link(
+                        CHANNEL_ID,
+                        member_limit=1,
+                        expire_date=datetime.now() + timedelta(days=tariff['days'])
+                    )
+                
+                await callback.message.edit_text(
+                    f"✅ **Оплата прошла успешно!**\n\n"
+                    f"🎉 Поздравляем! Вы получили доступ.\n"
+                    f"📅 Тариф: {tariff['name']}\n\n"
+                    f"Переходите в канал: {invite_link.invite_link}",
+                    reply_markup=get_main_menu(),
+                    parse_mode="Markdown"
+                )
+                
+                # Уведомление админу
+                if ADMIN_ID:
+                    await bot.send_message(
+                        ADMIN_ID,
+                        f"💰 Новая оплата!\n"
+                        f"👤 User: @{username} (ID: {user_id})\n"
+                        f"📦 Тариф: {tariff['name']}\n"
+                        f"💵 Сумма: {tariff['price']}₽"
+                    )
+                
+            except Exception as e:
+                logging.error(f"Error creating invite: {e}")
+                await callback.message.edit_text(
+                    "✅ Оплата получена!\n"
+                    "❌ Ошибка создания приглашения.\n"
+                    "Обратитесь к администратору.",
+                    reply_markup=get_main_menu()
+                )
+        
+    elif status == 'pending':
+        await callback.answer(
+            "⏳ Платеж в обработке. Попробуйте проверить через минуту.",
+            show_alert=True
+        )
+    elif status == 'waiting_for_capture':
+        await callback.answer(
+            "⏳ Ожидаем подтверждения оплаты...",
+            show_alert=True
+        )
+    else:
+        await callback.answer(
+            f"❌ Статус платежа: {status}. Попробуйте снова или обратитесь к поддержке.",
+            show_alert=True
+        )
 
 @dp.callback_query(F.data == "status")
 async def check_status(callback: types.CallbackQuery):
@@ -247,12 +405,21 @@ async def check_status(callback: types.CallbackQuery):
     
     if is_active:
         days_left = (subscription_until - datetime.now()).days
-        status_text = (
-            f"✅ **Ваша подписка активна!**\n\n"
-            f"📅 Тариф: {TARIFFS.get(user[3], {}).get('name', 'Неизвестно')}\n"
-            f"⏰ Осталось дней: {days_left}\n"
-            f"📆 Действует до: {subscription_until.strftime('%d.%m.%Y')}"
-        )
+        tariff_info = TARIFFS.get(user[3], {})
+        
+        if user[3] == 'forever':
+            status_text = (
+                f"✅ **Ваша подписка активна!**\n\n"
+                f"📅 Тариф: {tariff_info.get('name', 'Неизвестно')}\n"
+                f"♾️ Бессрочная подписка"
+            )
+        else:
+            status_text = (
+                f"✅ **Ваша подписка активна!**\n\n"
+                f"📅 Тариф: {tariff_info.get('name', 'Неизвестно')}\n"
+                f"⏰ Осталось дней: {days_left}\n"
+                f"📆 Действует до: {subscription_until.strftime('%d.%m.%Y')}"
+            )
     else:
         status_text = (
             f"❌ **Подписка истекла**\n\n"
@@ -293,6 +460,9 @@ async def admin_stats(message: types.Message):
     c.execute('SELECT SUM(amount) FROM payments WHERE status = "completed"')
     total_revenue = c.fetchone()[0] or 0
     
+    c.execute('SELECT COUNT(*) FROM payments WHERE status = "pending"')
+    pending_payments = c.fetchone()[0]
+    
     conn.close()
     
     stats_text = f"""
@@ -301,6 +471,7 @@ async def admin_stats(message: types.Message):
 👥 Всего пользователей: {total_users}
 ✅ Активных подписок: {active_users}
 💰 Общий доход: {total_revenue}₽
+⏳ Ожидают оплаты: {pending_payments}
 """
     
     await message.answer(stats_text, parse_mode="Markdown")
@@ -308,6 +479,7 @@ async def admin_stats(message: types.Message):
 # Запуск бота
 async def main():
     init_db()
+    logging.info("Bot started successfully!")
     await dp.start_polling(bot)
 
 if __name__ == '__main__':
