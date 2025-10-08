@@ -3,25 +3,25 @@ import logging
 from datetime import datetime, timedelta
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
-from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 import asyncio
-import sqlite3
 import aiohttp
 import uuid
 import base64
+import psycopg2
+from psycopg2.extras import RealDictCursor
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO)
 
 # Конфигурация из переменных окружения
 BOT_TOKEN = os.getenv('BOT_TOKEN')
-CHANNEL_ID = os.getenv('CHANNEL_ID')  # Например: @your_channel или -1001234567890
-YOOKASSA_SHOP_ID = os.getenv('YOOKASSA_SHOP_ID')  # 1119525
+CHANNEL_ID = os.getenv('CHANNEL_ID')
+YOOKASSA_SHOP_ID = os.getenv('YOOKASSA_SHOP_ID')
 YOOKASSA_SECRET_KEY = os.getenv('YOOKASSA_SECRET_KEY')
-ADMIN_ID = int(os.getenv('ADMIN_ID', 0))  # Твой Telegram ID
+ADMIN_ID = int(os.getenv('ADMIN_ID', 0))
+DATABASE_URL = os.getenv('DATABASE_URL')  # PostgreSQL URL от Railway
 
 # Тарифы
 TARIFFS = {
@@ -37,81 +37,106 @@ bot = Bot(token=BOT_TOKEN)
 storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
 
-# База данных
+# База данных PostgreSQL
+def get_db_connection():
+    """Создает подключение к PostgreSQL"""
+    return psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
+
 def init_db():
-    conn = sqlite3.connect('subscriptions.db')
-    c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS users
-                 (user_id INTEGER PRIMARY KEY,
+    """Инициализация таблиц в PostgreSQL"""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    cur.execute('''CREATE TABLE IF NOT EXISTS users
+                 (user_id BIGINT PRIMARY KEY,
                   username TEXT,
-                  subscription_until TEXT,
+                  subscription_until TIMESTAMP,
                   tariff TEXT,
-                  created_at TEXT)''')
-    c.execute('''CREATE TABLE IF NOT EXISTS payments
+                  created_at TIMESTAMP)''')
+    
+    cur.execute('''CREATE TABLE IF NOT EXISTS payments
                  (payment_id TEXT PRIMARY KEY,
-                  user_id INTEGER,
+                  user_id BIGINT,
                   amount REAL,
                   tariff TEXT,
                   status TEXT,
                   yookassa_id TEXT,
-                  created_at TEXT)''')
+                  created_at TIMESTAMP)''')
+    
     conn.commit()
+    cur.close()
     conn.close()
 
 def add_user(user_id, username, days, tariff):
-    conn = sqlite3.connect('subscriptions.db')
-    c = conn.cursor()
-    subscription_until = (datetime.now() + timedelta(days=days)).isoformat()
-    created_at = datetime.now().isoformat()
+    """Добавление/обновление пользователя"""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    subscription_until = datetime.now() + timedelta(days=days)
+    created_at = datetime.now()
     
-    c.execute('''INSERT OR REPLACE INTO users 
+    cur.execute('''INSERT INTO users 
                  (user_id, username, subscription_until, tariff, created_at)
-                 VALUES (?, ?, ?, ?, ?)''',
-              (user_id, username, subscription_until, tariff, created_at))
+                 VALUES (%s, %s, %s, %s, %s)
+                 ON CONFLICT (user_id) 
+                 DO UPDATE SET subscription_until = %s, tariff = %s''',
+              (user_id, username, subscription_until, tariff, created_at, 
+               subscription_until, tariff))
+    
     conn.commit()
+    cur.close()
     conn.close()
 
 def get_user(user_id):
-    conn = sqlite3.connect('subscriptions.db')
-    c = conn.cursor()
-    c.execute('SELECT * FROM users WHERE user_id = ?', (user_id,))
-    user = c.fetchone()
+    """Получение данных пользователя"""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute('SELECT * FROM users WHERE user_id = %s', (user_id,))
+    user = cur.fetchone()
+    cur.close()
     conn.close()
     return user
 
 def is_subscription_active(user_id):
+    """Проверка активности подписки"""
     user = get_user(user_id)
     if not user:
         return False
-    subscription_until = datetime.fromisoformat(user[2])
-    return datetime.now() < subscription_until
+    return datetime.now() < user['subscription_until']
 
 def create_payment(user_id, amount, tariff, yookassa_id):
-    conn = sqlite3.connect('subscriptions.db')
-    c = conn.cursor()
+    """Создание записи о платеже"""
+    conn = get_db_connection()
+    cur = conn.cursor()
     payment_id = f"{user_id}_{int(datetime.now().timestamp())}"
-    created_at = datetime.now().isoformat()
+    created_at = datetime.now()
     
-    c.execute('''INSERT INTO payments 
+    cur.execute('''INSERT INTO payments 
                  (payment_id, user_id, amount, tariff, status, yookassa_id, created_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?)''',
+                 VALUES (%s, %s, %s, %s, %s, %s, %s)''',
               (payment_id, user_id, amount, tariff, 'pending', yookassa_id, created_at))
+    
     conn.commit()
+    cur.close()
     conn.close()
     return payment_id
 
 def update_payment_status(yookassa_id, status):
-    conn = sqlite3.connect('subscriptions.db')
-    c = conn.cursor()
-    c.execute('UPDATE payments SET status = ? WHERE yookassa_id = ?', (status, yookassa_id))
+    """Обновление статуса платежа"""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute('UPDATE payments SET status = %s WHERE yookassa_id = %s', 
+                (status, yookassa_id))
     conn.commit()
+    cur.close()
     conn.close()
 
 def get_payment_by_yookassa_id(yookassa_id):
-    conn = sqlite3.connect('subscriptions.db')
-    c = conn.cursor()
-    c.execute('SELECT * FROM payments WHERE yookassa_id = ?', (yookassa_id,))
-    payment = c.fetchone()
+    """Получение платежа по ID ЮКассы"""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute('SELECT * FROM payments WHERE yookassa_id = %s', (yookassa_id,))
+    payment = cur.fetchone()
+    cur.close()
     conn.close()
     return payment
 
@@ -120,10 +145,7 @@ async def create_yookassa_payment(amount, description, user_id):
     """Создание платежа в ЮKassa"""
     url = "https://api.yookassa.ru/v3/payments"
     
-    # Создаем idempotence key для безопасности
     idempotence_key = str(uuid.uuid4())
-    
-    # Базовая авторизация
     auth_string = f"{YOOKASSA_SHOP_ID}:{YOOKASSA_SECRET_KEY}"
     auth_bytes = auth_string.encode('utf-8')
     auth_b64 = base64.b64encode(auth_bytes).decode('utf-8')
@@ -195,9 +217,6 @@ def get_main_menu():
 # Обработчики команд
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
-    user_id = message.from_user.id
-    username = message.from_user.username or "unknown"
-    
     welcome_text = f"""
 👋 Привет, {message.from_user.first_name}!
 
@@ -221,17 +240,14 @@ async def process_trial(callback: types.CallbackQuery):
     user_id = callback.from_user.id
     username = callback.from_user.username or "unknown"
     
-    # Проверяем, не использовал ли уже пробный период
     user = get_user(user_id)
     if user:
         await callback.answer("❌ Вы уже использовали пробный период!", show_alert=True)
         return
     
-    # Добавляем пользователя с пробным доступом
     add_user(user_id, username, TARIFFS['trial']['days'], 'trial')
     
     try:
-        # Добавляем в канал
         invite_link = await bot.create_chat_invite_link(
             CHANNEL_ID,
             member_limit=1,
@@ -262,7 +278,6 @@ async def process_tariff(callback: types.CallbackQuery):
     
     await callback.answer("⏳ Создаем платеж...", show_alert=False)
     
-    # Создаем платеж в ЮKassa
     payment = await create_yookassa_payment(
         amount=tariff['price'],
         description=f"Подписка: {tariff['name']}",
@@ -276,10 +291,7 @@ async def process_tariff(callback: types.CallbackQuery):
         )
         return
     
-    # Сохраняем платеж в БД
-    payment_id = create_payment(user_id, tariff['price'], tariff_code, payment['id'])
-    
-    # Получаем ссылку на оплату
+    create_payment(user_id, tariff['price'], tariff_code, payment['id'])
     confirmation_url = payment['confirmation']['confirmation_url']
     
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -302,10 +314,8 @@ async def process_tariff(callback: types.CallbackQuery):
 @dp.callback_query(F.data.startswith("check_"))
 async def check_payment(callback: types.CallbackQuery):
     yookassa_payment_id = callback.data.replace("check_", "")
-    
     await callback.answer("⏳ Проверяем оплату...", show_alert=False)
     
-    # Проверяем статус в ЮKassa
     payment_info = await check_yookassa_payment(yookassa_payment_id)
     
     if not payment_info:
@@ -315,24 +325,18 @@ async def check_payment(callback: types.CallbackQuery):
     status = payment_info.get('status')
     
     if status == 'succeeded':
-        # Платеж успешен!
         payment = get_payment_by_yookassa_id(yookassa_payment_id)
         if payment:
-            user_id = payment[1]
-            tariff_code = payment[3]
+            user_id = payment['user_id']
+            tariff_code = payment['tariff']
             tariff = TARIFFS[tariff_code]
             username = callback.from_user.username or "unknown"
             
-            # Обновляем статус платежа
             update_payment_status(yookassa_payment_id, 'completed')
-            
-            # Добавляем пользователя с подпиской
             add_user(user_id, username, tariff['days'], tariff_code)
             
             try:
-                # Создаем инвайт в канал
                 if tariff_code == 'forever':
-                    # Для навсегда - без ограничения времени
                     invite_link = await bot.create_chat_invite_link(
                         CHANNEL_ID,
                         member_limit=1
@@ -353,7 +357,6 @@ async def check_payment(callback: types.CallbackQuery):
                     parse_mode="Markdown"
                 )
                 
-                # Уведомление админу
                 if ADMIN_ID:
                     await bot.send_message(
                         ADMIN_ID,
@@ -377,14 +380,9 @@ async def check_payment(callback: types.CallbackQuery):
             "⏳ Платеж в обработке. Попробуйте проверить через минуту.",
             show_alert=True
         )
-    elif status == 'waiting_for_capture':
-        await callback.answer(
-            "⏳ Ожидаем подтверждения оплаты...",
-            show_alert=True
-        )
     else:
         await callback.answer(
-            f"❌ Статус платежа: {status}. Попробуйте снова или обратитесь к поддержке.",
+            f"❌ Статус платежа: {status}. Попробуйте снова.",
             show_alert=True
         )
 
@@ -400,14 +398,14 @@ async def check_status(callback: types.CallbackQuery):
         )
         return
     
-    subscription_until = datetime.fromisoformat(user[2])
+    subscription_until = user['subscription_until']
     is_active = datetime.now() < subscription_until
     
     if is_active:
         days_left = (subscription_until - datetime.now()).days
-        tariff_info = TARIFFS.get(user[3], {})
+        tariff_info = TARIFFS.get(user['tariff'], {})
         
-        if user[3] == 'forever':
+        if user['tariff'] == 'forever':
             status_text = (
                 f"✅ **Ваша подписка активна!**\n\n"
                 f"📅 Тариф: {tariff_info.get('name', 'Неизвестно')}\n"
@@ -441,28 +439,29 @@ async def go_back(callback: types.CallbackQuery):
     )
     await callback.answer()
 
-# Админ команды
 @dp.message(Command("stats"))
 async def admin_stats(message: types.Message):
     if message.from_user.id != ADMIN_ID:
         return
     
-    conn = sqlite3.connect('subscriptions.db')
-    c = conn.cursor()
+    conn = get_db_connection()
+    cur = conn.cursor()
     
-    c.execute('SELECT COUNT(*) FROM users')
-    total_users = c.fetchone()[0]
+    cur.execute('SELECT COUNT(*) as count FROM users')
+    total_users = cur.fetchone()['count']
     
-    c.execute('SELECT COUNT(*) FROM users WHERE subscription_until > ?', 
-              (datetime.now().isoformat(),))
-    active_users = c.fetchone()[0]
+    cur.execute('SELECT COUNT(*) as count FROM users WHERE subscription_until > %s', 
+                (datetime.now(),))
+    active_users = cur.fetchone()['count']
     
-    c.execute('SELECT SUM(amount) FROM payments WHERE status = "completed"')
-    total_revenue = c.fetchone()[0] or 0
+    cur.execute('SELECT COALESCE(SUM(amount), 0) as total FROM payments WHERE status = %s',
+                ('completed',))
+    total_revenue = cur.fetchone()['total']
     
-    c.execute('SELECT COUNT(*) FROM payments WHERE status = "pending"')
-    pending_payments = c.fetchone()[0]
+    cur.execute('SELECT COUNT(*) as count FROM payments WHERE status = %s', ('pending',))
+    pending_payments = cur.fetchone()['count']
     
+    cur.close()
     conn.close()
     
     stats_text = f"""
@@ -476,7 +475,6 @@ async def admin_stats(message: types.Message):
     
     await message.answer(stats_text, parse_mode="Markdown")
 
-# Запуск бота
 async def main():
     init_db()
     logging.info("Bot started successfully!")
