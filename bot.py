@@ -140,6 +140,57 @@ def get_payment_by_yookassa_id(yookassa_id):
     conn.close()
     return payment
 
+def get_expired_users():
+    """Получение пользователей с истекшей подпиской"""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute('''SELECT user_id, username FROM users 
+                   WHERE subscription_until < %s''', (datetime.now(),))
+    expired = cur.fetchall()
+    cur.close()
+    conn.close()
+    return expired
+
+async def check_and_remove_expired():
+    """Фоновая задача: проверка и удаление пользователей с истекшей подпиской"""
+    while True:
+        try:
+            logging.info("Checking for expired subscriptions...")
+            expired_users = get_expired_users()
+            
+            for user in expired_users:
+                user_id = user['user_id']
+                username = user['username']
+                
+                try:
+                    # Удаляем пользователя из группы
+                    await bot.ban_chat_member(CHANNEL_ID, user_id)
+                    # Сразу разбаниваем чтобы мог вернуться при покупке
+                    await bot.unban_chat_member(CHANNEL_ID, user_id)
+                    
+                    logging.info(f"Removed expired user: {username} (ID: {user_id})")
+                    
+                    # Уведомляем пользователя
+                    try:
+                        await bot.send_message(
+                            user_id,
+                            "⏰ Ваша подписка истекла!\n\n"
+                            "Продлите доступ чтобы продолжить пользоваться материалами.",
+                            reply_markup=get_main_menu()
+                        )
+                    except Exception as e:
+                        logging.error(f"Could not notify user {user_id}: {e}")
+                    
+                except Exception as e:
+                    logging.error(f"Error removing user {user_id}: {e}")
+            
+            # Проверяем каждый час
+            await asyncio.sleep(3600)
+            
+        except Exception as e:
+            logging.error(f"Error in check_and_remove_expired: {e}")
+            await asyncio.sleep(3600)
+
 # ЮKassa API
 async def create_yookassa_payment(amount, description, user_id):
     """Создание платежа в ЮKassa"""
@@ -220,7 +271,7 @@ async def cmd_start(message: types.Message):
     welcome_text = f"""
 👋 Привет, {message.from_user.first_name}!
 
-Добро пожаловать в бот закрытого канала с развивающими материалами для детей! 
+Добро пожаловать в бот закрытой группы с развивающими материалами для детей! 
 
 🎁 **Попробуй бесплатно 2 дня!**
 
@@ -258,7 +309,8 @@ async def process_trial(callback: types.CallbackQuery):
             f"🎉 Отлично! Ты получил пробный доступ на 2 дня!\n\n"
             f"Переходи по ссылке: {invite_link.invite_link}\n\n"
             f"⏰ Доступ истечет через 2 дня.\n"
-            f"После этого выбери подходящий тариф!",
+            f"После этого выбери подходящий тариф!\n\n"
+            f"💡 Это ссылка для присоединения к закрытой группе.",
             reply_markup=get_main_menu()
         )
     except Exception as e:
@@ -352,7 +404,7 @@ async def check_payment(callback: types.CallbackQuery):
                     f"✅ **Оплата прошла успешно!**\n\n"
                     f"🎉 Поздравляем! Вы получили доступ.\n"
                     f"📅 Тариф: {tariff['name']}\n\n"
-                    f"Переходите в канал: {invite_link.invite_link}",
+                    f"Переходите в группу: {invite_link.invite_link}",
                     reply_markup=get_main_menu(),
                     parse_mode="Markdown"
                 )
@@ -478,6 +530,10 @@ async def admin_stats(message: types.Message):
 async def main():
     init_db()
     logging.info("Bot started successfully!")
+    
+    # Запускаем фоновую задачу проверки подписок
+    asyncio.create_task(check_and_remove_expired())
+    
     await dp.start_polling(bot)
 
 if __name__ == '__main__':
