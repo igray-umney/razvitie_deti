@@ -309,11 +309,12 @@ async def cmd_start(message: types.Message):
     welcome_text = f"""
 👋 Привет, {message.from_user.first_name}!
 
-Добро пожаловать в бот закрытой группы с развивающими материалами для детей! 
+Добро пожаловать в бот закрытой группы с развивающими материалами для детей!
 
-🎁 **Попробуй бесплатно 2 дня!**
+🎁 Попробуй бесплатно 2 дня! После пробного периода выбери удобный тариф 👇
 
-После пробного периода выбери удобный тариф 👇
+🔥 Специальные цены 7 дней!
+Обычная цена → Цена со скидкой
 """
     
     await message.answer(welcome_text, reply_markup=get_main_menu())
@@ -559,6 +560,76 @@ async def admin_stats(message: types.Message):
 """
     
     await message.answer(stats_text, parse_mode="Markdown")
+
+@dp.message(Command("cleardb"))
+async def admin_clear_db(message: types.Message):
+    """Очистка базы данных (только для админа)"""
+    if message.from_user.id != ADMIN_ID:
+        return
+    
+    # Спрашиваем подтверждение
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Да, очистить", callback_data="confirm_clear")],
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_clear")]
+    ])
+    
+    await message.answer(
+        "⚠️ **ВНИМАНИЕ!**\n\n"
+        "Вы действительно хотите очистить ВСЮ базу данных?\n"
+        "Это удалит:\n"
+        "• Всех пользователей\n"
+        "• Все платежи\n"
+        "• Все уведомления\n\n"
+        "**Это действие нельзя отменить!**",
+        reply_markup=keyboard,
+        parse_mode="Markdown"
+    )
+
+@dp.callback_query(F.data == "confirm_clear")
+async def confirm_clear_db(callback: types.CallbackQuery):
+    """Подтверждение очистки БД"""
+    if callback.from_user.id != ADMIN_ID:
+        await callback.answer("❌ Доступ запрещен!", show_alert=True)
+        return
+    
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        
+        # Очищаем все таблицы
+        cur.execute('DELETE FROM notifications')
+        cur.execute('DELETE FROM payments')
+        cur.execute('DELETE FROM users')
+        
+        conn.commit()
+        cur.close()
+        conn.close()
+        
+        await callback.message.edit_text(
+            "✅ **База данных успешно очищена!**\n\n"
+            "Все данные удалены:\n"
+            "• Пользователи: 0\n"
+            "• Платежи: 0\n"
+            "• Уведомления: 0\n\n"
+            "Можете начинать тестирование заново! 🚀"
+        )
+        
+        logging.info(f"Database cleared by admin {callback.from_user.id}")
+        
+    except Exception as e:
+        logging.error(f"Error clearing database: {e}")
+        await callback.message.edit_text(
+            "❌ **Ошибка при очистке базы данных!**\n\n"
+            f"Детали: {str(e)}"
+        )
+    
+    await callback.answer()
+
+@dp.callback_query(F.data == "cancel_clear")
+async def cancel_clear_db(callback: types.CallbackQuery):
+    """Отмена очистки БД"""
+    await callback.message.edit_text("✅ Очистка отменена. База данных не изменена.")
+    await callback.answer()
 
 async def main():
     init_db()
