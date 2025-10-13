@@ -295,10 +295,10 @@ async def check_yookassa_payment(payment_id):
 def get_main_menu():
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🎁 Попробовать бесплатно (2 дня)", callback_data="trial")],
-        [InlineKeyboardButton(text="📅 1 месяц - 380₽ / 190₽ (скидка 50%)", callback_data="1month")],
-        [InlineKeyboardButton(text="📅 3 месяца - 1140₽ / 450₽ (скидка ~61%)", callback_data="3months")],
-        [InlineKeyboardButton(text="📅 6 месяцев - 2280₽ / 690₽ (скидка ~70%)", callback_data="6months")],
-        [InlineKeyboardButton(text="♾️ Навсегда - 4560₽ / 900₽ (скидка ~80%)", callback_data="forever")],
+        [InlineKeyboardButton(text="📅 1 месяц - 380₽ → 190₽ (скидка 50%)", callback_data="1month")],
+        [InlineKeyboardButton(text="📅 3 месяца - 1140₽ → 450₽ (скидка 61%)", callback_data="3months")],
+        [InlineKeyboardButton(text="📅 6 месяцев - 2280₽ → 690₽ (скидка 70%)", callback_data="6months")],
+        [InlineKeyboardButton(text="♾️ Навсегда - 4560₽ → 900₽ (скидка 80%)", callback_data="forever")],
         [InlineKeyboardButton(text="ℹ️ Мой статус", callback_data="status")]
     ])
     return keyboard
@@ -314,10 +314,10 @@ async def cmd_start(message: types.Message):
 🎁 **Попробуй бесплатно 2 дня!**
 
 После пробного периода выбери удобный тариф:
-• 1 месяц - ~~380₽~~ **190₽** (скидка 50%!)
-• 3 месяца - ~~1140₽~~ **450₽** (скидка ~61%!)
-• 6 месяцев - ~~2280₽~~ **690₽** (скидка ~70%!)
-• Навсегда - ~~4560₽~~ **900₽** (скидка ~80%!)
+• 1 месяц - 380₽ → **190₽** (скидка 50%!)
+• 3 месяца - 1140₽ → **450₽** (скидка 61%!)
+• 6 месяцев - 2280₽ → **690₽** (скидка 70%!)
+• Навсегда - 4560₽ → **900₽** (скидка 80%!)
 
 Выбери вариант ниже 👇
 """
@@ -392,7 +392,7 @@ async def process_tariff(callback: types.CallbackQuery):
     
     await callback.message.edit_text(
         f"📦 Вы выбрали: **{tariff['name']}**\n"
-        f"💰 Полная цена: ~~{tariff['old_price']}₽~~\n"
+        f"💰 Полная цена: {tariff['old_price']}₽\n"
         f"💳 К оплате: **{tariff['price']}₽**\n\n"
         f"1️⃣ Нажмите 'Оплатить'\n"
         f"2️⃣ Завершите оплату\n"
