@@ -596,10 +596,29 @@ async def confirm_clear_db(callback: types.CallbackQuery):
         conn = get_db_connection()
         cur = conn.cursor()
         
-        # Очищаем все таблицы
-        cur.execute('DELETE FROM notifications')
-        cur.execute('DELETE FROM payments')
-        cur.execute('DELETE FROM users')
+        # Очищаем таблицы (если существуют)
+        tables_cleared = []
+        
+        # Пытаемся очистить notifications
+        try:
+            cur.execute('DELETE FROM notifications')
+            tables_cleared.append('notifications')
+        except Exception as e:
+            logging.warning(f"Table notifications doesn't exist or error: {e}")
+        
+        # Очищаем payments
+        try:
+            cur.execute('DELETE FROM payments')
+            tables_cleared.append('payments')
+        except Exception as e:
+            logging.warning(f"Error clearing payments: {e}")
+        
+        # Очищаем users
+        try:
+            cur.execute('DELETE FROM users')
+            tables_cleared.append('users')
+        except Exception as e:
+            logging.warning(f"Error clearing users: {e}")
         
         conn.commit()
         cur.close()
@@ -607,10 +626,7 @@ async def confirm_clear_db(callback: types.CallbackQuery):
         
         await callback.message.edit_text(
             "✅ **База данных успешно очищена!**\n\n"
-            "Все данные удалены:\n"
-            "• Пользователи: 0\n"
-            "• Платежи: 0\n"
-            "• Уведомления: 0\n\n"
+            f"Очищенные таблицы: {', '.join(tables_cleared)}\n\n"
             "Можете начинать тестирование заново! 🚀"
         )
         
