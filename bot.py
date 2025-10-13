@@ -25,11 +25,11 @@ DATABASE_URL = os.getenv('DATABASE_URL')  # PostgreSQL URL от Railway
 
 # Тарифы
 TARIFFS = {
-    'trial': {'name': 'Пробный период', 'days': 2, 'price': 0},
-    '1month': {'name': '1 месяц (скидка 50%)', 'days': 30, 'price': 95},
-    '3months': {'name': '3 месяца', 'days': 90, 'price': 490},
-    '6months': {'name': '6 месяцев', 'days': 180, 'price': 890},
-    'forever': {'name': 'Навсегда', 'days': 36500, 'price': 1990}
+    'trial': {'name': 'Пробный период', 'days': 2, 'price': 0, 'old_price': 0},
+    '1month': {'name': '1 месяц', 'days': 30, 'price': 190, 'old_price': 380},
+    '3months': {'name': '3 месяца', 'days': 90, 'price': 450, 'old_price': 1140},
+    '6months': {'name': '6 месяцев', 'days': 180, 'price': 690, 'old_price': 2280},
+    'forever': {'name': 'Навсегда', 'days': 36500, 'price': 900, 'old_price': 4560}
 }
 
 # Инициализация бота
@@ -151,6 +151,36 @@ def get_expired_users():
     conn.close()
     return expired
 
+def was_notified_recently(user_id):
+    """Проверка, было ли уведомление отправлено недавно (за последние 24 часа)"""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute('''SELECT last_notified FROM notifications 
+                   WHERE user_id = %s''', (user_id,))
+    result = cur.fetchone()
+    cur.close()
+    conn.close()
+    
+    if not result:
+        return False
+    
+    last_notified = result['last_notified']
+    time_diff = datetime.now() - last_notified
+    return time_diff.total_seconds() < 86400  # 24 часа = 86400 секунд
+
+def mark_as_notified(user_id):
+    """Отметить что пользователь был уведомлен"""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute('''INSERT INTO notifications (user_id, last_notified)
+                   VALUES (%s, %s)
+                   ON CONFLICT (user_id)
+                   DO UPDATE SET last_notified = %s''',
+                (user_id, datetime.now(), datetime.now()))
+    conn.commit()
+    cur.close()
+    conn.close()
+
 async def check_and_remove_expired():
     """Фоновая задача: проверка и удаление пользователей с истекшей подпиской"""
     while True:
@@ -161,6 +191,11 @@ async def check_and_remove_expired():
             for user in expired_users:
                 user_id = user['user_id']
                 username = user['username']
+                
+                # Проверяем, не уведомляли ли мы пользователя за последние 24 часа
+                if was_notified_recently(user_id):
+                    logging.info(f"User {user_id} was already notified recently, skipping...")
+                    continue
                 
                 try:
                     # Удаляем пользователя из группы
@@ -178,13 +213,16 @@ async def check_and_remove_expired():
                             "Продлите доступ чтобы продолжить пользоваться материалами.",
                             reply_markup=get_main_menu()
                         )
+                        # Отмечаем что уведомили
+                        mark_as_notified(user_id)
+                        logging.info(f"Notified user {user_id} about expiration")
                     except Exception as e:
                         logging.error(f"Could not notify user {user_id}: {e}")
                     
                 except Exception as e:
                     logging.error(f"Error removing user {user_id}: {e}")
             
-            # Проверяем каждый час
+            # Проверяем каждый час, но уведомляем только раз в 24 часа
             await asyncio.sleep(3600)
             
         except Exception as e:
@@ -257,10 +295,10 @@ async def check_yookassa_payment(payment_id):
 def get_main_menu():
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🎁 Попробовать бесплатно (2 дня)", callback_data="trial")],
-        [InlineKeyboardButton(text="📅 1 месяц - 95₽ (скидка 50%)", callback_data="1month")],
-        [InlineKeyboardButton(text="📅 3 месяца - 490₽", callback_data="3months")],
-        [InlineKeyboardButton(text="📅 6 месяцев - 890₽", callback_data="6months")],
-        [InlineKeyboardButton(text="♾️ Навсегда - 1990₽", callback_data="forever")],
+        [InlineKeyboardButton(text="📅 1 месяц - 380₽ / 190₽ (скидка 50%)", callback_data="1month")],
+        [InlineKeyboardButton(text="📅 3 месяца - 1140₽ / 450₽ (скидка ~61%)", callback_data="3months")],
+        [InlineKeyboardButton(text="📅 6 месяцев - 2280₽ / 690₽ (скидка ~70%)", callback_data="6months")],
+        [InlineKeyboardButton(text="♾️ Навсегда - 4560₽ / 900₽ (скидка ~80%)", callback_data="forever")],
         [InlineKeyboardButton(text="ℹ️ Мой статус", callback_data="status")]
     ])
     return keyboard
@@ -276,10 +314,10 @@ async def cmd_start(message: types.Message):
 🎁 **Попробуй бесплатно 2 дня!**
 
 После пробного периода выбери удобный тариф:
-• 1 месяц - 95₽ (скидка 50%!)
-• 3 месяца - 490₽
-• 6 месяцев - 890₽
-• Навсегда - 1990₽
+• 1 месяц - ~~380₽~~ **190₽** (скидка 50%!)
+• 3 месяца - ~~1140₽~~ **450₽** (скидка ~61%!)
+• 6 месяцев - ~~2280₽~~ **690₽** (скидка ~70%!)
+• Навсегда - ~~4560₽~~ **900₽** (скидка ~80%!)
 
 Выбери вариант ниже 👇
 """
@@ -354,7 +392,8 @@ async def process_tariff(callback: types.CallbackQuery):
     
     await callback.message.edit_text(
         f"📦 Вы выбрали: **{tariff['name']}**\n"
-        f"💰 Стоимость: {tariff['price']}₽\n\n"
+        f"💰 Полная цена: ~~{tariff['old_price']}₽~~\n"
+        f"💳 К оплате: **{tariff['price']}₽**\n\n"
         f"1️⃣ Нажмите 'Оплатить'\n"
         f"2️⃣ Завершите оплату\n"
         f"3️⃣ Вернитесь и нажмите 'Проверить оплату'\n\n"
