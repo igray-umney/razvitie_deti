@@ -299,7 +299,8 @@ def get_main_menu():
         [InlineKeyboardButton(text="📅 3 месяца - 1140₽ → 450₽ (скидка 61%)", callback_data="3months")],
         [InlineKeyboardButton(text="📅 6 месяцев - 2280₽ → 690₽ (скидка 70%)", callback_data="6months")],
         [InlineKeyboardButton(text="♾️ Навсегда - 4560₽ → 900₽ (скидка 80%)", callback_data="forever")],
-        [InlineKeyboardButton(text="ℹ️ Мой статус", callback_data="status")]
+        [InlineKeyboardButton(text="ℹ️ Мой статус", callback_data="status")],
+        [InlineKeyboardButton(text="❓ Частые вопросы", callback_data="faq")]
     ])
     return keyboard
 
