@@ -295,7 +295,7 @@ async def check_yookassa_payment(payment_id):
 def get_main_menu():
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🎁 Попробовать бесплатно (2 дня)", callback_data="trial")],
-        [InlineKeyboardButton(text="💳 Оплатить подписку", callback_data="show_tariffs")],
+        [InlineKeyboardButton(text="📋 Выбрать подписку", callback_data="show_tariffs")],
         [InlineKeyboardButton(text="ℹ️ Мой статус", callback_data="status")],
         [InlineKeyboardButton(text="❓ Частые вопросы", callback_data="faq")]
     ])
@@ -319,10 +319,7 @@ async def cmd_start(message: types.Message):
 
 Добро пожаловать в бот закрытой группы с развивающими материалами для детей!
 
-🎁 Попробуй бесплатно 2 дня! После пробного периода выбери удобный тариф 👇
-
-🔥 Специальные цены 7 дней!
-Обычная цена → Цена со скидкой
+🎁 Попробуй бесплатно 2 дня! После пробного периода выбери удобную подписку и развивайся вместе с нами 👇
 """
     
     await message.answer(welcome_text, reply_markup=get_main_menu())
@@ -528,8 +525,23 @@ async def check_status(callback: types.CallbackQuery):
 @dp.callback_query(F.data == "back")
 async def go_back(callback: types.CallbackQuery):
     await callback.message.edit_text(
-        "Выберите подходящий тариф:",
+        f"👋 Привет, {callback.from_user.first_name}!\n\n"
+        "Добро пожаловать в бот закрытой группы с развивающими материалами для детей!\n\n"
+        "🎁 Попробуй бесплатно 2 дня! После пробного периода выбери удобную подписку и развивайся вместе с нами 👇",
         reply_markup=get_main_menu()
+    )
+    await callback.answer()
+
+@dp.callback_query(F.data == "show_tariffs")
+async def show_tariffs(callback: types.CallbackQuery):
+    """Показать список тарифов"""
+    await callback.message.edit_text(
+        "📋 **Выберите подходящую подписку:**\n\n"
+        "🔥 Специальные цены 7 дней!\n"
+        "Обычная цена → Цена со скидкой\n\n"
+        "💡 Чем дольше тариф - тем больше экономия!",
+        reply_markup=get_tariffs_menu(),
+        parse_mode="Markdown"
     )
     await callback.answer()
 
