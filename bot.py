@@ -254,43 +254,37 @@ def mark_funnel_message_sent(user_id, message_type):
 async def sales_funnel():
     """Воронка продаж - автоматические сообщения"""
     
-    # Получаем TEST_MODE здесь, внутри функции
-    test_mode = os.getenv('TEST_MODE', 'False').lower() == 'true'
+    # 🧪 ДЛЯ ТЕСТА: Таймеры в минутах (закомментируй после теста)
+    timers = {
+        'welcome': (0.02, 0.5),           # ~1 минута после старта
+        'day1_morning': (0.05, 0.1),      # ~3 минуты
+        'day1_evening': (0.1, 0.15),      # ~6 минут
+        'day2_8hours': (0.15, 0.2),       # ~9 минут (для hours_until_end)
+        'day2_2hours': (0.2, 0.25),       # ~12 минут
+        'expired_immediate': (0, 0.05),   # Сразу после истечения
+        'expired_day3': (0.1, 0.15),      # ~6 минут после истечения
+        'expired_day5': (0.2, 0.25)       # ~12 минут после истечения
+    }
+    check_interval = 60  # Проверять каждую минуту
     
-    # Таймеры воронки в зависимости от режима
-    if test_mode:
-        logging.info("🧪 TEST MODE: Accelerated funnel timings!")
-        timers = {
-            'welcome': (0.02, 0.5),           # ~1 минута после старта
-            'day1_morning': (0.05, 0.1),      # ~3 минуты
-            'day1_evening': (0.1, 0.15),      # ~6 минут
-            'day2_8hours': (0.15, 0.2),       # ~9 минут
-            'day2_2hours': (0.2, 0.25),       # ~12 минут
-            'expired_immediate': (0, 0.05),   # Сразу после истечения
-            'expired_day3': (0.1, 0.15),      # ~6 минут после истечения
-            'expired_day5': (0.2, 0.25)       # ~12 минут после истечения
-        }
-        check_interval = 60  # Проверять каждую минуту
-    else:
-        logging.info("🚀 PRODUCTION MODE: Normal funnel timings")
-        timers = {
-            'welcome': (0.08, 0.5),           # 5 минут после старта
-            'day1_morning': (18, 22),         # 18-22 часа
-            'day1_evening': (28, 32),         # 28-32 часа
-            'day2_8hours': (6, 10),           # За 6-10 часов до конца (для hours_until_end)
-            'day2_2hours': (1, 3),            # За 1-3 часа до конца
-            'expired_immediate': (0, 2),      # 0-2 часа после истечения
-            'expired_day3': (22, 26),         # 22-26 часов после истечения
-            'expired_day5': (70, 74)          # 70-74 часа после истечения
-        }
-        check_interval = 1800  # Проверять каждые 30 минут
+    # 🚀 ДЛЯ ПРОДАКШЕНА: Раскомментируй это и закомментируй блок выше
+    # timers = {
+    #     'welcome': (0.08, 0.5),           # 5 минут после старта
+    #     'day1_morning': (18, 22),         # 18-22 часа
+    #     'day1_evening': (28, 32),         # 28-32 часа
+    #     'day2_8hours': (6, 10),           # За 6-10 часов до конца
+    #     'day2_2hours': (1, 3),            # За 1-3 часа до конца
+    #     'expired_immediate': (0, 2),      # 0-2 часа после истечения
+    #     'expired_day3': (22, 26),         # 22-26 часов после истечения
+    #     'expired_day5': (70, 74)          # 70-74 часа после истечения
+    # }
+    # check_interval = 1800  # Проверять каждые 30 минут
+    
+    logging.info("🧪 SALES FUNNEL: Test mode with accelerated timings!")
     
     while True:
         try:
-            if test_mode:
-                logging.info("🧪 [TEST] Running sales funnel check...")
-            else:
-                logging.info("Running sales funnel check...")
+            logging.info("🧪 [TEST] Running sales funnel check...")
             
             # Получаем пользователей с пробным периодом
             trial_users = get_trial_users_for_funnel()
@@ -303,8 +297,7 @@ async def sales_funnel():
                 hours_since_start = (datetime.now() - created_at).total_seconds() / 3600
                 hours_until_end = (subscription_until - datetime.now()).total_seconds() / 3600
                 
-                if test_mode:
-                    logging.info(f"🧪 [TEST] User {user_id}: {hours_since_start:.2f}h since start, {hours_until_end:.2f}h until end")
+                logging.info(f"🧪 [TEST] User {user_id}: {hours_since_start:.2f}h since start, {hours_until_end:.2f}h until end")
                 
                 try:
                     # ДЕНЬ 0: Приветствие
@@ -324,8 +317,7 @@ async def sales_funnel():
                                 "Приятного знакомства! 🌟"
                             )
                             mark_funnel_message_sent(user_id, 'welcome')
-                            if test_mode:
-                                logging.info(f"✅ [TEST] Sent 'welcome' to user {user_id}")
+                            logging.info(f"✅ [TEST] Sent 'welcome' to user {user_id}")
                     
                     # ДЕНЬ 1: Утро
                     min_h, max_h = timers['day1_morning']
@@ -343,8 +335,7 @@ async def sales_funnel():
                                 "Вопросы? Пишите @razvitie_dety 💬"
                             )
                             mark_funnel_message_sent(user_id, 'day1_morning')
-                            if test_mode:
-                                logging.info(f"✅ [TEST] Sent 'day1_morning' to user {user_id}")
+                            logging.info(f"✅ [TEST] Sent 'day1_morning' to user {user_id}")
                     
                     # ДЕНЬ 1: Вечер
                     min_h, max_h = timers['day1_evening']
@@ -364,8 +355,7 @@ async def sales_funnel():
                                 reply_markup=keyboard
                             )
                             mark_funnel_message_sent(user_id, 'day1_evening')
-                            if test_mode:
-                                logging.info(f"✅ [TEST] Sent 'day1_evening' to user {user_id}")
+                            logging.info(f"✅ [TEST] Sent 'day1_evening' to user {user_id}")
                     
                     # ДЕНЬ 2: За 8 часов до конца
                     min_h, max_h = timers['day2_8hours']
@@ -391,8 +381,7 @@ async def sales_funnel():
                                 reply_markup=keyboard
                             )
                             mark_funnel_message_sent(user_id, 'day2_8hours')
-                            if test_mode:
-                                logging.info(f"✅ [TEST] Sent 'day2_8hours' to user {user_id}")
+                            logging.info(f"✅ [TEST] Sent 'day2_8hours' to user {user_id}")
                     
                     # ДЕНЬ 2: За 2 часа до конца
                     min_h, max_h = timers['day2_2hours']
@@ -417,8 +406,7 @@ async def sales_funnel():
                                 reply_markup=keyboard
                             )
                             mark_funnel_message_sent(user_id, 'day2_2hours')
-                            if test_mode:
-                                logging.info(f"✅ [TEST] Sent 'day2_2hours' to user {user_id}")
+                            logging.info(f"✅ [TEST] Sent 'day2_2hours' to user {user_id}")
                 
                 except Exception as e:
                     logging.error(f"Error sending funnel message to {user_id}: {e}")
@@ -431,8 +419,7 @@ async def sales_funnel():
                 subscription_until = user['subscription_until']
                 hours_since_expired = (datetime.now() - subscription_until).total_seconds() / 3600
                 
-                if test_mode:
-                    logging.info(f"🧪 [TEST] Expired user {user_id}: {hours_since_expired:.2f}h since expiration")
+                logging.info(f"🧪 [TEST] Expired user {user_id}: {hours_since_expired:.2f}h since expiration")
                 
                 try:
                     # Сразу после истечения
@@ -514,8 +501,7 @@ async def sales_funnel():
                     logging.error(f"Error sending expired funnel message to {user_id}: {e}")
             
             # Ждем перед следующей проверкой
-            if test_mode:
-                logging.info(f"🧪 [TEST] Next check in {check_interval} seconds")
+            logging.info(f"🧪 [TEST] Next check in {check_interval} seconds")
             await asyncio.sleep(check_interval)
             
         except Exception as e:
