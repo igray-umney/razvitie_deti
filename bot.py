@@ -254,8 +254,11 @@ def mark_funnel_message_sent(user_id, message_type):
 async def sales_funnel():
     """Воронка продаж - автоматические сообщения"""
     
+    # Получаем TEST_MODE здесь, внутри функции
+    test_mode = os.getenv('TEST_MODE', 'False').lower() == 'true'
+    
     # Таймеры воронки в зависимости от режима
-    if TEST_MODE:
+    if test_mode:
         logging.info("🧪 TEST MODE: Accelerated funnel timings!")
         timers = {
             'welcome': (0.02, 0.5),           # ~1 минута после старта
@@ -284,7 +287,7 @@ async def sales_funnel():
     
     while True:
         try:
-            if TEST_MODE:
+            if test_mode:
                 logging.info("🧪 [TEST] Running sales funnel check...")
             else:
                 logging.info("Running sales funnel check...")
@@ -300,7 +303,7 @@ async def sales_funnel():
                 hours_since_start = (datetime.now() - created_at).total_seconds() / 3600
                 hours_until_end = (subscription_until - datetime.now()).total_seconds() / 3600
                 
-                if TEST_MODE:
+                if test_mode:
                     logging.info(f"🧪 [TEST] User {user_id}: {hours_since_start:.2f}h since start, {hours_until_end:.2f}h until end")
                 
                 try:
@@ -321,7 +324,7 @@ async def sales_funnel():
                                 "Приятного знакомства! 🌟"
                             )
                             mark_funnel_message_sent(user_id, 'welcome')
-                            if TEST_MODE:
+                            if test_mode:
                                 logging.info(f"✅ [TEST] Sent 'welcome' to user {user_id}")
                     
                     # ДЕНЬ 1: Утро
@@ -340,7 +343,7 @@ async def sales_funnel():
                                 "Вопросы? Пишите @razvitie_dety 💬"
                             )
                             mark_funnel_message_sent(user_id, 'day1_morning')
-                            if TEST_MODE:
+                            if test_mode:
                                 logging.info(f"✅ [TEST] Sent 'day1_morning' to user {user_id}")
                     
                     # ДЕНЬ 1: Вечер
@@ -361,7 +364,7 @@ async def sales_funnel():
                                 reply_markup=keyboard
                             )
                             mark_funnel_message_sent(user_id, 'day1_evening')
-                            if TEST_MODE:
+                            if test_mode:
                                 logging.info(f"✅ [TEST] Sent 'day1_evening' to user {user_id}")
                     
                     # ДЕНЬ 2: За 8 часов до конца
@@ -388,7 +391,7 @@ async def sales_funnel():
                                 reply_markup=keyboard
                             )
                             mark_funnel_message_sent(user_id, 'day2_8hours')
-                            if TEST_MODE:
+                            if test_mode:
                                 logging.info(f"✅ [TEST] Sent 'day2_8hours' to user {user_id}")
                     
                     # ДЕНЬ 2: За 2 часа до конца
@@ -414,7 +417,7 @@ async def sales_funnel():
                                 reply_markup=keyboard
                             )
                             mark_funnel_message_sent(user_id, 'day2_2hours')
-                            if TEST_MODE:
+                            if test_mode:
                                 logging.info(f"✅ [TEST] Sent 'day2_2hours' to user {user_id}")
                 
                 except Exception as e:
@@ -428,7 +431,7 @@ async def sales_funnel():
                 subscription_until = user['subscription_until']
                 hours_since_expired = (datetime.now() - subscription_until).total_seconds() / 3600
                 
-                if TEST_MODE:
+                if test_mode:
                     logging.info(f"🧪 [TEST] Expired user {user_id}: {hours_since_expired:.2f}h since expiration")
                 
                 try:
@@ -511,7 +514,7 @@ async def sales_funnel():
                     logging.error(f"Error sending expired funnel message to {user_id}: {e}")
             
             # Ждем перед следующей проверкой
-            if TEST_MODE:
+            if test_mode:
                 logging.info(f"🧪 [TEST] Next check in {check_interval} seconds")
             await asyncio.sleep(check_interval)
             
