@@ -37,6 +37,12 @@ bot = Bot(token=BOT_TOKEN)
 storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
 
+# Логирование режима работы при импорте
+if TEST_MODE:
+    logging.info("🧪 TEST MODE ENABLED: Accelerated funnel timings!")
+else:
+    logging.info("🚀 PRODUCTION MODE: Normal funnel timings")
+
 # База данных PostgreSQL
 def get_db_connection():
     """Создает подключение к PostgreSQL"""
