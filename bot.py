@@ -494,8 +494,7 @@ async def sales_funnel():
                                 reply_markup=keyboard
                             )
                             mark_funnel_message_sent(user_id, 'expired_day5')
-                            if TEST_MODE:
-                                logging.info(f"✅ [TEST] Sent 'expired_day5' to user {user_id}")
+                            logging.info(f"✅ [TEST] Sent 'expired_day5' to user {user_id}")
                 
                 except Exception as e:
                     logging.error(f"Error sending expired funnel message to {user_id}: {e}")
