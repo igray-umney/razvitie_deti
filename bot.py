@@ -181,6 +181,280 @@ def mark_as_notified(user_id):
     cur.close()
     conn.close()
 
+def get_trial_users_for_funnel():
+    """Получение пользователей в пробном периоде для воронки"""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    # Пользователи с пробным доступом
+    cur.execute('''SELECT user_id, username, subscription_until, created_at 
+                   FROM users 
+                   WHERE tariff = %s 
+                   AND subscription_until > %s''',
+                ('trial', datetime.now()))
+    
+    trial_users = cur.fetchall()
+    cur.close()
+    conn.close()
+    return trial_users
+
+def get_expired_trial_users():
+    """Получение пользователей с истекшим пробным периодом"""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    cur.execute('''SELECT user_id, username, subscription_until, created_at 
+                   FROM users 
+                   WHERE tariff = %s 
+                   AND subscription_until < %s''',
+                ('trial', datetime.now()))
+    
+    expired_users = cur.fetchall()
+    cur.close()
+    conn.close()
+    return expired_users
+
+def get_funnel_message_sent(user_id, message_type):
+    """Проверка, было ли отправлено сообщение воронки"""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    # Создаем таблицу для отслеживания сообщений воронки если её нет
+    cur.execute('''CREATE TABLE IF NOT EXISTS funnel_messages
+                   (id SERIAL PRIMARY KEY,
+                    user_id BIGINT,
+                    message_type TEXT,
+                    sent_at TIMESTAMP,
+                    UNIQUE(user_id, message_type))''')
+    
+    cur.execute('''SELECT sent_at FROM funnel_messages 
+                   WHERE user_id = %s AND message_type = %s''',
+                (user_id, message_type))
+    
+    result = cur.fetchone()
+    cur.close()
+    conn.close()
+    return result
+
+def mark_funnel_message_sent(user_id, message_type):
+    """Отметить что сообщение воронки отправлено"""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    cur.execute('''INSERT INTO funnel_messages (user_id, message_type, sent_at)
+                   VALUES (%s, %s, %s)
+                   ON CONFLICT (user_id, message_type)
+                   DO UPDATE SET sent_at = %s''',
+                (user_id, message_type, datetime.now(), datetime.now()))
+    
+    conn.commit()
+    cur.close()
+    conn.close()
+
+async def sales_funnel():
+    """Воронка продаж - автоматические сообщения"""
+    while True:
+        try:
+            logging.info("Running sales funnel check...")
+            
+            # Получаем пользователей с пробным периодом
+            trial_users = get_trial_users_for_funnel()
+            
+            for user in trial_users:
+                user_id = user['user_id']
+                created_at = user['created_at']
+                subscription_until = user['subscription_until']
+                
+                hours_since_start = (datetime.now() - created_at).total_seconds() / 3600
+                hours_until_end = (subscription_until - datetime.now()).total_seconds() / 3600
+                
+                try:
+                    # ДЕНЬ 0: Приветствие через 5 минут (0.08 часа)
+                    if 0.08 <= hours_since_start < 0.5:
+                        if not get_funnel_message_sent(user_id, 'welcome'):
+                            await bot.send_message(
+                                user_id,
+                                "🎉 Поздравляем! Вы в клубе \"Развитие для детей\"!\n\n"
+                                "Ваш бесплатный доступ активен на 2 дня.\n\n"
+                                "📚 Что делать дальше:\n\n"
+                                "1️⃣ Изучите материалы в группе\n"
+                                "2️⃣ Попробуйте задания с ребенком\n"
+                                "3️⃣ Посмотрите результаты уже сегодня!\n\n"
+                                "💡 Совет: начните с популярных разделов - там самые любимые материалы!\n\n"
+                                "🎥 Видеообзор материалов → https://t.me/instrukcii_baza/32\n\n"
+                                "Приятного знакомства! 🌟"
+                            )
+                            mark_funnel_message_sent(user_id, 'welcome')
+                    
+                    # ДЕНЬ 1: Утро (18-20 часов)
+                    if 18 <= hours_since_start < 22:
+                        if not get_funnel_message_sent(user_id, 'day1_morning'):
+                            await bot.send_message(
+                                user_id,
+                                "☀️ Доброе утро!\n\n"
+                                "Как вам первые материалы? Уже попробовали что-то с ребенком?\n\n"
+                                "👨‍👩‍👧‍👦 Кстати, всего в клубе уже 500+ активных родителей.\n\n"
+                                "💬 Что говорят другие:\n\n"
+                                "\"За первый день дочка освоила 5 новых слов! Спасибо за игры!\" - Мария\n\n"
+                                "\"Сын в восторге от заданий на логику!\" - Андрей\n\n"
+                                "📌 У вас остался 1 день пробного доступа.\n\n"
+                                "Вопросы? Пишите @razvitie_dety 💬"
+                            )
+                            mark_funnel_message_sent(user_id, 'day1_morning')
+                    
+                    # ДЕНЬ 1: Вечер (28-32 часа)
+                    if 28 <= hours_since_start < 32:
+                        if not get_funnel_message_sent(user_id, 'day1_evening'):
+                            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                                [InlineKeyboardButton(text="Развивающие игры 🎮", callback_data="survey_games")],
+                                [InlineKeyboardButton(text="Творчество 🎨", callback_data="survey_creative")],
+                                [InlineKeyboardButton(text="Обучение 📚", callback_data="survey_learning")]
+                            ])
+                            await bot.send_message(
+                                user_id,
+                                "🌙 Добрый вечер!\n\n"
+                                "Быстрый вопрос: какие материалы понравились больше всего?\n\n"
+                                "⏰ Кстати, завтра последний день пробного периода.\n\n"
+                                "💡 Успеете попробовать творческие мастер-классы? Дети обожают их!",
+                                reply_markup=keyboard
+                            )
+                            mark_funnel_message_sent(user_id, 'day1_evening')
+                    
+                    # ДЕНЬ 2: За 8 часов до конца
+                    if 6 <= hours_until_end < 10:
+                        if not get_funnel_message_sent(user_id, 'day2_8hours'):
+                            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                                [InlineKeyboardButton(text="📋 Выбрать подписку", callback_data="show_tariffs")]
+                            ])
+                            await bot.send_message(
+                                user_id,
+                                "⏰ Осталось 8 часов пробного доступа!\n\n"
+                                "Мы заметили, что вы активно используете материалы - это здорово! 👏\n\n"
+                                "🎯 Специально для вас:\n\n"
+                                "Оформите подписку сегодня и получите:\n"
+                                "✅ Скидку до 80% (действует только 7 дней)\n"
+                                "✅ Бонусную подборку материалов\n\n"
+                                "📊 Ваша экономия:\n\n"
+                                "1 месяц: 380₽ → 190₽ (экономия 190₽)\n"
+                                "3 месяца: 1140₽ → 450₽ (экономия 690₽)\n"
+                                "6 месяцев: 2280₽ → 690₽ (экономия 1590₽)\n"
+                                "Навсегда: 4560₽ → 900₽ (экономия 3660₽!)\n\n"
+                                "P.S. После окончания пробного периода цены вернутся к обычным.",
+                                reply_markup=keyboard
+                            )
+                            mark_funnel_message_sent(user_id, 'day2_8hours')
+                    
+                    # ДЕНЬ 2: За 2 часа до конца
+                    if 1 <= hours_until_end < 3:
+                        if not get_funnel_message_sent(user_id, 'day2_2hours'):
+                            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                                [InlineKeyboardButton(text="💳 Продолжить развитие", callback_data="show_tariffs")],
+                                [InlineKeyboardButton(text="💬 Задать вопрос", url="https://t.me/razvitie_dety")]
+                            ])
+                            await bot.send_message(
+                                user_id,
+                                "⏰ Осталось 2 часа!\n\n"
+                                "Представьте: завтра ваш ребенок спросит: \"Мама/Папа, а где наши игры?\"\n\n"
+                                "🎉 Или завтра вы продолжите вместе:\n"
+                                "• Развивать речь через игры\n"
+                                "• Создавать поделки\n"
+                                "• Учиться через творчество\n\n"
+                                "🔥 Специальная цена действует еще 5 дней!\n\n"
+                                "190₽ = всего 6₽ в день для развития ребенка\n"
+                                "☕ Меньше чем чашка кофе!\n\n"
+                                "❓ Есть вопросы? Ответим за 5 минут!",
+                                reply_markup=keyboard
+                            )
+                            mark_funnel_message_sent(user_id, 'day2_2hours')
+                
+                except Exception as e:
+                    logging.error(f"Error sending funnel message to {user_id}: {e}")
+            
+            # Обработка пользователей с истекшим пробным периодом
+            expired_users = get_expired_trial_users()
+            
+            for user in expired_users:
+                user_id = user['user_id']
+                subscription_until = user['subscription_until']
+                hours_since_expired = (datetime.now() - subscription_until).total_seconds() / 3600
+                
+                try:
+                    # Сразу после истечения (0-2 часа)
+                    if 0 <= hours_since_expired < 2:
+                        if not get_funnel_message_sent(user_id, 'expired_immediate'):
+                            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                                [InlineKeyboardButton(text="💳 Вернуться в клуб", callback_data="show_tariffs")]
+                            ])
+                            await bot.send_message(
+                                user_id,
+                                "😔 Ваш пробный доступ истек\n\n"
+                                "Надеемся, материалы понравились вам и вашему ребенку.\n\n"
+                                "🎁 Хорошая новость:\n\n"
+                                "Специально для вас мы сохранили скидку еще на 5 дней!\n\n"
+                                "Вернуться можно прямо сейчас:\n"
+                                "• 190₽ за месяц (вместо 380₽)\n"
+                                "• Или выбрать выгодный тариф на 3-6 месяцев\n\n"
+                                "📊 Что вы потеряете без подписки:\n"
+                                "❌ 200+ развивающих игр\n"
+                                "❌ Еженедельные новинки\n"
+                                "❌ Поддержку экспертов\n\n"
+                                "P.S. Скидка действует 5 дней.",
+                                reply_markup=keyboard
+                            )
+                            mark_funnel_message_sent(user_id, 'expired_immediate')
+                    
+                    # ДЕНЬ 3 (через 24 часа после истечения)
+                    if 22 <= hours_since_expired < 26:
+                        if not get_funnel_message_sent(user_id, 'expired_day3'):
+                            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                                [InlineKeyboardButton(text="📋 Выбрать тариф", callback_data="show_tariffs")],
+                                [InlineKeyboardButton(text="💬 Задать вопрос", url="https://t.me/razvitie_dety")]
+                            ])
+                            await bot.send_message(
+                                user_id,
+                                "💬 Посмотрите, что говорят родители:\n\n"
+                                "\"Вернулись после пробного периода и не жалеем! Ребенок с нетерпением ждет новых заданий!\" - Елена\n\n"
+                                "\"За месяц сын научился считать до 20 и выучил все буквы!\" - Мария\n\n"
+                                "А вы все еще думаете? 🤔\n\n"
+                                "⏰ Осталось 4 дня специальной цены!\n\n"
+                                "💡 Знаете ли вы:\n"
+                                "• 87% родителей продлевают подписку\n"
+                                "• Родители экономят 2-3 часа в неделю на поиске материалов\n\n"
+                                "🎯 3 месяца = всего 5₽ в день!\n\n"
+                                "❓ Не уверены? Напишите нам - расскажем подробнее!",
+                                reply_markup=keyboard
+                            )
+                            mark_funnel_message_sent(user_id, 'expired_day3')
+                    
+                    # ДЕНЬ 5 (через 72 часа)
+                    if 70 <= hours_since_expired < 74:
+                        if not get_funnel_message_sent(user_id, 'expired_day5'):
+                            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                                [InlineKeyboardButton(text="Слишком дорого 💰", callback_data="feedback_expensive")],
+                                [InlineKeyboardButton(text="Не понравился контент", callback_data="feedback_content")],
+                                [InlineKeyboardButton(text="Нужно больше времени ⏰", callback_data="feedback_time")],
+                                [InlineKeyboardButton(text="Другое", callback_data="feedback_other")]
+                            ])
+                            await bot.send_message(
+                                user_id,
+                                "Можем узнать ваше мнение? 🤔\n\n"
+                                "Мы заметили, что вы не продлили подписку после пробного периода.\n\n"
+                                "Что вас остановило?\n\n"
+                                "💡 За честный ответ - специальный бонус от нас!",
+                                reply_markup=keyboard
+                            )
+                            mark_funnel_message_sent(user_id, 'expired_day5')
+                
+                except Exception as e:
+                    logging.error(f"Error sending expired funnel message to {user_id}: {e}")
+            
+            # Проверяем каждые 30 минут
+            await asyncio.sleep(1800)
+            
+        except Exception as e:
+            logging.error(f"Error in sales funnel: {e}")
+            await asyncio.sleep(1800)
+
 async def check_and_remove_expired():
     """Фоновая задача: проверка и удаление пользователей с истекшей подпиской"""
     while True:
