@@ -153,20 +153,24 @@ def get_expired_users():
 
 def was_notified_recently(user_id):
     """Проверка, было ли уведомление отправлено недавно (за последние 24 часа)"""
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute('''SELECT last_notified FROM notifications 
-                   WHERE user_id = %s''', (user_id,))
-    result = cur.fetchone()
-    cur.close()
-    conn.close()
-    
-    if not result:
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute('''SELECT last_notified FROM notifications 
+                       WHERE user_id = %s''', (user_id,))
+        result = cur.fetchone()
+        cur.close()
+        conn.close()
+        
+        if not result:
+            return False
+        
+        last_notified = result['last_notified']
+        time_diff = datetime.now() - last_notified
+        return time_diff.total_seconds() < 86400  # 24 часа = 86400 секунд
+    except Exception as e:
+        logging.warning(f"Table notifications doesn't exist yet: {e}")
         return False
-    
-    last_notified = result['last_notified']
-    time_diff = datetime.now() - last_notified
-    return time_diff.total_seconds() < 86400  # 24 часа = 86400 секунд
 
 def mark_as_notified(user_id):
     """Отметить что пользователь был уведомлен"""
@@ -1147,12 +1151,100 @@ async def cancel_clear_db(callback: types.CallbackQuery):
     await callback.message.edit_text("✅ Очистка отменена. База данных не изменена.")
     await callback.answer()
 
+@dp.callback_query(F.data.startswith("survey_"))
+async def handle_survey(callback: types.CallbackQuery):
+    """Обработка ответов на опрос"""
+    survey_type = callback.data.replace("survey_", "")
+    
+    responses = {
+        'games': 'Развивающие игры',
+        'creative': 'Творчество',
+        'learning': 'Обучение'
+    }
+    
+    await callback.answer(
+        f"Спасибо! Рады что вам нравится раздел '{responses.get(survey_type)}'!",
+        show_alert=True
+    )
+    
+    await callback.message.edit_text(
+        f"🎁 Отлично! Вы выбрали: {responses.get(survey_type)}\n\n"
+        f"В этом разделе еще много материалов доступно по подписке!\n\n"
+        f"💡 Успейте оформить подписку по специальной цене - скидка действует еще несколько дней!",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📋 Выбрать подписку", callback_data="show_tariffs")]
+        ])
+    )
+
+@dp.callback_query(F.data.startswith("feedback_"))
+async def handle_feedback(callback: types.CallbackQuery):
+    """Обработка обратной связи"""
+    feedback_type = callback.data.replace("feedback_", "")
+    user_id = callback.from_user.id
+    
+    if feedback_type == 'expensive':
+        # Персональная скидка
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="💳 Активировать скидку", callback_data="show_tariffs")]
+        ])
+        await callback.message.edit_text(
+            "Спасибо за честность! 💙\n\n"
+            "Специально для вас - персональная скидка 30%:\n\n"
+            "1 месяц: 190₽ → 133₽\n"
+            "3 месяца: 450₽ → 315₽\n\n"
+            "Это предложение только для вас и действует 24 часа!",
+            reply_markup=keyboard
+        )
+        mark_funnel_message_sent(user_id, 'personal_discount')
+        
+    elif feedback_type == 'time':
+        # Дополнительный пробный период
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="💬 Связаться с поддержкой", url="https://t.me/razvitie_dety")]
+        ])
+        await callback.message.edit_text(
+            "Понимаем вас! 🤗\n\n"
+            "Напишите нам @razvitie_dety - возможно мы сможем продлить ваш пробный период!\n\n"
+            "А еще подготовили для вас:\n"
+            "📝 Гайд \"Как получить максимум от материалов\"\n"
+            "🎥 Видео-обзор всех разделов\n"
+            "💬 Консультацию с экспертом (бесплатно)",
+            reply_markup=keyboard
+        )
+        
+    elif feedback_type == 'content':
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="💬 Рассказать подробнее", url="https://t.me/razvitie_dety")]
+        ])
+        await callback.message.edit_text(
+            "Нам очень важно ваше мнение! 🙏\n\n"
+            "Расскажите, что именно не понравилось?\n"
+            "Мы постоянно улучшаем материалы и ваш отзыв поможет нам стать лучше!\n\n"
+            "Напишите @razvitie_dety",
+            reply_markup=keyboard
+        )
+    else:
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="💬 Написать нам", url="https://t.me/razvitie_dety")]
+        ])
+        await callback.message.edit_text(
+            "Спасибо за ответ! 💙\n\n"
+            "Расскажите подробнее о причине - возможно мы сможем помочь!\n\n"
+            "Напишите @razvitie_dety",
+            reply_markup=keyboard
+        )
+    
+    await callback.answer()
+
 async def main():
     init_db()
     logging.info("Bot started successfully!")
     
     # Запускаем фоновую задачу проверки подписок
     asyncio.create_task(check_and_remove_expired())
+    
+    # Запускаем воронку продаж
+    asyncio.create_task(sales_funnel())
     
     await dp.start_polling(bot)
 
