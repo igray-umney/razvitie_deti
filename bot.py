@@ -571,12 +571,14 @@ async def show_faq(callback: types.CallbackQuery):
 async def faq_answer_1(callback: types.CallbackQuery):
     """Ответ на вопрос 1"""
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💳 Продлить сейчас", callback_data="back")],
+        [InlineKeyboardButton(text="🎥 Видеоинструкция", url="https://t.me/instrukcii_baza/33")],
+        [InlineKeyboardButton(text="💳 Продлить сейчас", callback_data="show_tariffs")],
         [InlineKeyboardButton(text="◀️ К вопросам", callback_data="faq")]
     ])
     
     await callback.message.edit_text(
         "**1. Как продлить подписку?**\n\n"
+        "🎥 **Смотрите видеоинструкцию** - там всё понятно показано!\n\n"
         "После окончания подписки вы получите уведомление от бота с предложением продлить.\n\n"
         "Также вы можете продлить в любой момент:\n"
         "• Введите /start\n"
@@ -672,12 +674,15 @@ async def faq_answer_4(callback: types.CallbackQuery):
 async def faq_answer_5(callback: types.CallbackQuery):
     """Ответ на вопрос 5"""
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🎥 Видео: Обзор материалов", url="https://t.me/instrukcii_baza/32")],
+        [InlineKeyboardButton(text="🎥 Видео: Как пользоваться", url="https://t.me/instrukcii_baza/34")],
         [InlineKeyboardButton(text="🎁 Попробовать бесплатно", callback_data="trial")],
         [InlineKeyboardButton(text="◀️ К вопросам", callback_data="faq")]
     ])
     
     await callback.message.edit_text(
         "**5. Что входит в подписку?**\n\n"
+        "🎥 **Смотрите видеообзоры** - наглядно покажем что внутри!\n\n"
         "📚 **Доступ к материалам:**\n"
         "• Развивающие игры и задания\n"
         "• Образовательный контент по возрастам\n"
