@@ -231,14 +231,6 @@ def get_funnel_message_sent(user_id, message_type):
     conn = get_db_connection()
     cur = conn.cursor()
     
-    # Создаем таблицу для отслеживания сообщений воронки если её нет
-    cur.execute('''CREATE TABLE IF NOT EXISTS funnel_messages
-                   (id SERIAL PRIMARY KEY,
-                    user_id BIGINT,
-                    message_type TEXT,
-                    sent_at TIMESTAMP,
-                    UNIQUE(user_id, message_type))''')
-    
     cur.execute('''SELECT sent_at FROM funnel_messages 
                    WHERE user_id = %s AND message_type = %s''',
                 (user_id, message_type))
