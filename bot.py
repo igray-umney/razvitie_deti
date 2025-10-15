@@ -1163,8 +1163,9 @@ async def main():
     init_db()
     logging.info("Bot started successfully!")
     
-    # Запускаем фоновую задачу проверки подписок
+    # Запускаем обе фоновые задачи
     asyncio.create_task(check_and_remove_expired())
+    asyncio.create_task(sales_funnel())  # Добавили эту строку!
     
     await dp.start_polling(bot)
 
