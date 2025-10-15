@@ -63,6 +63,18 @@ def init_db():
                   yookassa_id TEXT,
                   created_at TIMESTAMP)''')
     
+    # Добавляем недостающие таблицы
+    cur.execute('''CREATE TABLE IF NOT EXISTS notifications
+                 (user_id BIGINT PRIMARY KEY,
+                  last_notified TIMESTAMP)''')
+    
+    cur.execute('''CREATE TABLE IF NOT EXISTS funnel_messages
+                 (id SERIAL PRIMARY KEY,
+                  user_id BIGINT,
+                  message_type TEXT,
+                  sent_at TIMESTAMP,
+                  UNIQUE(user_id, message_type))''')
+    
     conn.commit()
     cur.close()
     conn.close()
