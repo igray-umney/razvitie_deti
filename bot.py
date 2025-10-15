@@ -273,8 +273,8 @@ async def sales_funnel():
                 hours_until_end = (subscription_until - datetime.now()).total_seconds() / 3600
                 
                 try:
-                    # Приветствие через 1 минуту (вместо 5 минут)
-                    if 1 <= minutes_since_start < 2:
+                    # ДЕНЬ 0: Приветствие через 5 минут (0.08 часа)
+                    if 0.08 <= hours_since_start < 0.5:
                         if not get_funnel_message_sent(user_id, 'welcome'):
                             await bot.send_message(
                                 user_id,
@@ -289,10 +289,9 @@ async def sales_funnel():
                                 "Приятного знакомства! 🌟"
                             )
                             mark_funnel_message_sent(user_id, 'welcome')
-                            logging.info(f"✅ Sent 'welcome' to user {user_id}")
                     
-                    # ДЕНЬ 1: Утро (через 3 минуты вместо 18 часов)
-                    if 3 <= minutes_since_start < 4:
+                    # ДЕНЬ 1: Утро (18-20 часов)
+                    if 18 <= hours_since_start < 22:
                         if not get_funnel_message_sent(user_id, 'day1_morning'):
                             await bot.send_message(
                                 user_id,
@@ -306,10 +305,9 @@ async def sales_funnel():
                                 "Вопросы? Пишите @razvitie_dety 💬"
                             )
                             mark_funnel_message_sent(user_id, 'day1_morning')
-                            logging.info(f"✅ Sent 'day1_morning' to user {user_id}")
                     
-                    # ДЕНЬ 1: Вечер (через 5 минут вместо 28 часов)
-                    if 5 <= minutes_since_start < 6:
+                    # ДЕНЬ 1: Вечер (28-32 часа)
+                    if 28 <= hours_since_start < 32:
                         if not get_funnel_message_sent(user_id, 'day1_evening'):
                             keyboard = InlineKeyboardMarkup(inline_keyboard=[
                                 [InlineKeyboardButton(text="Развивающие игры 🎮", callback_data="survey_games")],
@@ -325,10 +323,9 @@ async def sales_funnel():
                                 reply_markup=keyboard
                             )
                             mark_funnel_message_sent(user_id, 'day1_evening')
-                            logging.info(f"✅ Sent 'day1_evening' to user {user_id}")
                     
-                    # ДЕНЬ 2: За 8 часов до конца (через 7 минут вместо за 8 часов до конца)
-                    if 7 <= minutes_since_start < 8:
+                    # ДЕНЬ 2: За 8 часов до конца
+                    if 6 <= hours_until_end < 10:
                         if not get_funnel_message_sent(user_id, 'day2_8hours'):
                             keyboard = InlineKeyboardMarkup(inline_keyboard=[
                                 [InlineKeyboardButton(text="📋 Выбрать подписку", callback_data="show_tariffs")]
@@ -350,10 +347,9 @@ async def sales_funnel():
                                 reply_markup=keyboard
                             )
                             mark_funnel_message_sent(user_id, 'day2_8hours')
-                            logging.info(f"✅ Sent 'day2_8hours' to user {user_id}")
                     
-                    # ДЕНЬ 2: За 2 часа до конца (через 9 минут вместо за 2 часа до конца)
-                    if 9 <= minutes_since_start < 10:
+                    # ДЕНЬ 2: За 2 часа до конца
+                    if 1 <= hours_until_end < 3:
                         if not get_funnel_message_sent(user_id, 'day2_2hours'):
                             keyboard = InlineKeyboardMarkup(inline_keyboard=[
                                 [InlineKeyboardButton(text="💳 Продолжить развитие", callback_data="show_tariffs")],
@@ -374,7 +370,6 @@ async def sales_funnel():
                                 reply_markup=keyboard
                             )
                             mark_funnel_message_sent(user_id, 'day2_2hours')
-                            logging.info(f"✅ Sent 'day2_2hours' to user {user_id}")
                 
                 except Exception as e:
                     logging.error(f"Error sending funnel message to {user_id}: {e}")
@@ -385,11 +380,11 @@ async def sales_funnel():
             for user in expired_users:
                 user_id = user['user_id']
                 subscription_until = user['subscription_until']
-                minutes_since_expired = (datetime.now() - subscription_until).total_seconds() / 60
+                hours_since_expired = (datetime.now() - subscription_until).total_seconds() / 3600
                 
                 try:
-                    # Сразу после истечения (через 1 минуту вместо 0-2 часа)
-                    if 1 <= minutes_since_expired < 2:
+                    # Сразу после истечения (0-2 часа)
+                    if 0 <= hours_since_expired < 2:
                         if not get_funnel_message_sent(user_id, 'expired_immediate'):
                             keyboard = InlineKeyboardMarkup(inline_keyboard=[
                                 [InlineKeyboardButton(text="💳 Вернуться в клуб", callback_data="show_tariffs")]
@@ -411,10 +406,9 @@ async def sales_funnel():
                                 reply_markup=keyboard
                             )
                             mark_funnel_message_sent(user_id, 'expired_immediate')
-                            logging.info(f"✅ Sent 'expired_immediate' to user {user_id}")
                     
-                    # ДЕНЬ 3 (через 5 минут вместо 24 часа после истечения)
-                    if 5 <= minutes_since_expired < 6:
+                    # ДЕНЬ 3 (через 24 часа после истечения)
+                    if 22 <= hours_since_expired < 26:
                         if not get_funnel_message_sent(user_id, 'expired_day3'):
                             keyboard = InlineKeyboardMarkup(inline_keyboard=[
                                 [InlineKeyboardButton(text="📋 Выбрать тариф", callback_data="show_tariffs")],
@@ -435,10 +429,9 @@ async def sales_funnel():
                                 reply_markup=keyboard
                             )
                             mark_funnel_message_sent(user_id, 'expired_day3')
-                            logging.info(f"✅ Sent 'expired_day3' to user {user_id}")
                     
-                    # ДЕНЬ 5 (через 10 минут вместо 72 часа)
-                    if 10 <= minutes_since_expired < 11:
+                    # ДЕНЬ 5 (через 72 часа)
+                    if 70 <= hours_since_expired < 74:
                         if not get_funnel_message_sent(user_id, 'expired_day5'):
                             keyboard = InlineKeyboardMarkup(inline_keyboard=[
                                 [InlineKeyboardButton(text="Слишком дорого 💰", callback_data="feedback_expensive")],
@@ -455,17 +448,16 @@ async def sales_funnel():
                                 reply_markup=keyboard
                             )
                             mark_funnel_message_sent(user_id, 'expired_day5')
-                            logging.info(f"✅ Sent 'expired_day5' to user {user_id}")
                 
                 except Exception as e:
                     logging.error(f"Error sending expired funnel message to {user_id}: {e}")
             
-            # Проверяем каждые 30 секунд (вместо 30 минут)
-            await asyncio.sleep(30)
+            # Проверяем каждые 30 минут
+            await asyncio.sleep(1800)
             
         except Exception as e:
             logging.error(f"Error in sales funnel: {e}")
-            await asyncio.sleep(30)
+            await asyncio.sleep(1800)
 
 async def check_and_remove_expired():
     """Фоновая задача: проверка и удаление пользователей с истекшей подпиской"""
