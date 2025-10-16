@@ -1167,6 +1167,34 @@ async def cancel_clear_db(callback: types.CallbackQuery):
     await callback.message.edit_text("✅ Очистка отменена. База данных не изменена.")
     await callback.answer()
 
+# Обработчики опроса из воронки
+@dp.callback_query(F.data.in_(['survey_games', 'survey_creative', 'survey_learning']))
+async def handle_survey(callback: types.CallbackQuery):
+    """Обработка опроса предпочтений"""
+    await callback.answer("Спасибо за ваш ответ! 💚", show_alert=True)
+
+# Обработчики feedback
+@dp.callback_query(F.data.in_(['feedback_expensive', 'feedback_content', 'feedback_time', 'feedback_other']))
+async def handle_feedback(callback: types.CallbackQuery):
+    """Обработка обратной связи"""
+    await callback.answer("Спасибо за обратную связь! 🙏", show_alert=True)
+    
+    # Уведомляем админа
+    if ADMIN_ID:
+        feedback_names = {
+            'expensive': 'Слишком дорого',
+            'content': 'Не понравился контент',
+            'time': 'Нужно больше времени',
+            'other': 'Другое'
+        }
+        feedback = callback.data.replace('feedback_', '')
+        await bot.send_message(
+            ADMIN_ID,
+            f"📊 Новый отзыв!\n"
+            f"👤 @{callback.from_user.username} (ID: {callback.from_user.id})\n"
+            f"💭 {feedback_names.get(feedback, feedback)}"
+        )
+
 async def main():
     init_db()
     logging.info("Bot started successfully!")
