@@ -470,12 +470,28 @@ async def check_and_remove_expired():
                 user_id = user['user_id']
                 username = user['username']
                 
+                # Пропускаем админа
+                if user_id == ADMIN_ID:
+                    logging.info(f"Skipping admin {user_id}")
+                    continue
+                
                 # Проверяем, не уведомляли ли мы пользователя за последние 24 часа
                 if was_notified_recently(user_id):
                     logging.info(f"User {user_id} was already notified recently, skipping...")
                     continue
                 
                 try:
+                    # Получаем информацию о пользователе в канале
+                    try:
+                        chat_member = await bot.get_chat_member(CHANNEL_ID, user_id)
+                        
+                        # Если это владелец или администратор - пропускаем
+                        if chat_member.status in ['creator', 'administrator']:
+                            logging.info(f"User {user_id} is admin/owner, skipping removal")
+                            continue
+                    except Exception as e:
+                        logging.warning(f"Could not get chat member info for {user_id}: {e}")
+                    
                     # Удаляем пользователя из группы
                     await bot.ban_chat_member(CHANNEL_ID, user_id)
                     # Сразу разбаниваем чтобы мог вернуться при покупке
