@@ -255,6 +255,19 @@ def mark_funnel_message_sent(user_id, message_type):
     cur.close()
     conn.close()
 
+async def send_safe_funnel_message(user_id, text, reply_markup=None):
+    """Безопасная отправка сообщений воронки с обработкой блокировки"""
+    try:
+        await bot.send_message(user_id, text, reply_markup=reply_markup)
+        return True
+    except Exception as e:
+        if "bot was blocked by the user" in str(e) or "Forbidden" in str(e):
+            logging.info(f"User {user_id} blocked the bot, skipping")
+            return False
+        else:
+            logging.error(f"Error sending message to {user_id}: {e}")
+            return False
+
 async def sales_funnel():
     """Воронка продаж - автоматические сообщения"""
     while True:
