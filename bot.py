@@ -255,6 +255,7 @@ def mark_funnel_message_sent(user_id, message_type):
     cur.close()
     conn.close()
 
+# Добавьте эту функцию ПЕРЕД async def sales_funnel():
 async def send_safe_funnel_message(user_id, text, reply_markup=None):
     """Безопасная отправка сообщений воронки с обработкой блокировки"""
     try:
@@ -285,11 +286,10 @@ async def sales_funnel():
                 hours_since_start = (datetime.now() - created_at).total_seconds() / 3600
                 hours_until_end = (subscription_until - datetime.now()).total_seconds() / 3600
                 
-               try:
+                try:
                     # ДЕНЬ 0: Приветствие через 5 минут (0.08 часа)
                     if 0.08 <= hours_since_start < 0.5:
                         if not get_funnel_message_sent(user_id, 'welcome'):
-                            # ИСПОЛЬЗУЕМ НОВУЮ ФУНКЦИЮ:
                             success = await send_safe_funnel_message(
                                 user_id,
                                 "🎉 Поздравляем! Вы в клубе \"Развитие для детей\"!\n\n"
@@ -302,13 +302,12 @@ async def sales_funnel():
                                 "🎥 Видеообзор материалов → https://t.me/instrukcii_baza/32\n\n"
                                 "Приятного знакомства! 🌟"
                             )
-                            # Помечаем как отправленное в любом случае (даже если заблокировали)
                             mark_funnel_message_sent(user_id, 'welcome')
                     
                     # ДЕНЬ 1: Утро (18-20 часов)
                     if 18 <= hours_since_start < 22:
                         if not get_funnel_message_sent(user_id, 'day1_morning'):
-                            await bot.send_message(
+                            success = await send_safe_funnel_message(
                                 user_id,
                                 "☀️ Доброе утро!\n\n"
                                 "Как вам первые материалы? Уже попробовали что-то с ребенком?\n\n"
@@ -329,7 +328,7 @@ async def sales_funnel():
                                 [InlineKeyboardButton(text="Творчество 🎨", callback_data="survey_creative")],
                                 [InlineKeyboardButton(text="Обучение 📚", callback_data="survey_learning")]
                             ])
-                            await bot.send_message(
+                            success = await send_safe_funnel_message(
                                 user_id,
                                 "🌙 Добрый вечер!\n\n"
                                 "Быстрый вопрос: какие материалы понравились больше всего?\n\n"
@@ -345,7 +344,7 @@ async def sales_funnel():
                             keyboard = InlineKeyboardMarkup(inline_keyboard=[
                                 [InlineKeyboardButton(text="📋 Выбрать подписку", callback_data="show_tariffs")]
                             ])
-                            await bot.send_message(
+                            success = await send_safe_funnel_message(
                                 user_id,
                                 "⏰ Осталось 8 часов пробного доступа!\n\n"
                                 "Мы заметили, что вы активно используете материалы - это здорово! 👏\n\n"
@@ -370,7 +369,7 @@ async def sales_funnel():
                                 [InlineKeyboardButton(text="💳 Продолжить развитие", callback_data="show_tariffs")],
                                 [InlineKeyboardButton(text="💬 Задать вопрос", url="https://t.me/razvitie_dety")]
                             ])
-                            await bot.send_message(
+                            success = await send_safe_funnel_message(
                                 user_id,
                                 "⏰ Осталось 2 часа!\n\n"
                                 "Представьте: завтра ваш ребенок спросит: \"Мама/Папа, а где наши игры?\"\n\n"
@@ -404,7 +403,7 @@ async def sales_funnel():
                             keyboard = InlineKeyboardMarkup(inline_keyboard=[
                                 [InlineKeyboardButton(text="💳 Вернуться в клуб", callback_data="show_tariffs")]
                             ])
-                            await bot.send_message(
+                            success = await send_safe_funnel_message(
                                 user_id,
                                 "😔 Ваш пробный доступ истек\n\n"
                                 "Надеемся, материалы понравились вам и вашему ребенку.\n\n"
@@ -429,7 +428,7 @@ async def sales_funnel():
                                 [InlineKeyboardButton(text="📋 Выбрать тариф", callback_data="show_tariffs")],
                                 [InlineKeyboardButton(text="💬 Задать вопрос", url="https://t.me/razvitie_dety")]
                             ])
-                            await bot.send_message(
+                            success = await send_safe_funnel_message(
                                 user_id,
                                 "💬 Посмотрите, что говорят родители:\n\n"
                                 "\"Вернулись после пробного периода и не жалеем! Ребенок с нетерпением ждет новых заданий!\" - Елена\n\n"
@@ -454,7 +453,7 @@ async def sales_funnel():
                                 [InlineKeyboardButton(text="Нужно больше времени ⏰", callback_data="feedback_time")],
                                 [InlineKeyboardButton(text="Другое", callback_data="feedback_other")]
                             ])
-                            await bot.send_message(
+                            success = await send_safe_funnel_message(
                                 user_id,
                                 "Можем узнать ваше мнение? 🤔\n\n"
                                 "Мы заметили, что вы не продлили подписку после пробного периода.\n\n"
