@@ -651,14 +651,21 @@ async def process_trial(callback: types.CallbackQuery):
             expire_date=datetime.now() + timedelta(days=2)
         )
         
-        await callback.message.edit_text(
+        # ВАЖНО: Отправляем ОТДЕЛЬНОЕ сообщение со ссылкой (не редактируем старое)
+        await bot.send_message(
+            user_id,
             f"🎉 Отлично! Ты получил пробный доступ на 2 дня!\n\n"
+            f"<b>ВАЖНО: Сохрани эту ссылку!</b>\n\n"
             f"Переходи по ссылке: {invite_link.invite_link}\n\n"
             f"⏰ Доступ истечет через 2 дня.\n"
             f"После этого выбери подходящий тариф!\n\n"
             f"💡 Это ссылка для присоединения к закрытой группе.",
-            reply_markup=get_main_menu()
+            reply_markup=get_main_menu(),
+            parse_mode="HTML"
         )
+        
+        await callback.answer()
+        
     except Exception as e:
         logging.error(f"Error adding user to channel: {e}")
         await callback.message.edit_text(
