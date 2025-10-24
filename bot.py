@@ -285,11 +285,12 @@ async def sales_funnel():
                 hours_since_start = (datetime.now() - created_at).total_seconds() / 3600
                 hours_until_end = (subscription_until - datetime.now()).total_seconds() / 3600
                 
-                try:
+               try:
                     # ДЕНЬ 0: Приветствие через 5 минут (0.08 часа)
                     if 0.08 <= hours_since_start < 0.5:
                         if not get_funnel_message_sent(user_id, 'welcome'):
-                            await bot.send_message(
+                            # ИСПОЛЬЗУЕМ НОВУЮ ФУНКЦИЮ:
+                            success = await send_safe_funnel_message(
                                 user_id,
                                 "🎉 Поздравляем! Вы в клубе \"Развитие для детей\"!\n\n"
                                 "Ваш бесплатный доступ активен на 2 дня.\n\n"
@@ -301,6 +302,7 @@ async def sales_funnel():
                                 "🎥 Видеообзор материалов → https://t.me/instrukcii_baza/32\n\n"
                                 "Приятного знакомства! 🌟"
                             )
+                            # Помечаем как отправленное в любом случае (даже если заблокировали)
                             mark_funnel_message_sent(user_id, 'welcome')
                     
                     # ДЕНЬ 1: Утро (18-20 часов)
