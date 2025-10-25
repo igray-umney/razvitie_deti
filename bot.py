@@ -12,6 +12,9 @@ import base64
 import psycopg2
 from psycopg2.extras import RealDictCursor
 
+from aiogram.fsm.context import FSMContext
+from aiogram.filters import StateFilter
+
 # Настройка логирования
 logging.basicConfig(level=logging.INFO)
 
@@ -36,6 +39,9 @@ TARIFFS = {
 bot = Bot(token=BOT_TOKEN)
 storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
+
+# Импорт системы обратной связи
+from feedback_broadcast import *
 
 # База данных PostgreSQL
 def get_db_connection():
@@ -1219,6 +1225,8 @@ async def handle_feedback(callback: types.CallbackQuery):
 async def main():
     init_db()
     logging.info("Bot started successfully!")
+
+    init_feedback_system()
     
     # Запускаем обе фоновые задачи
     asyncio.create_task(check_and_remove_expired())
