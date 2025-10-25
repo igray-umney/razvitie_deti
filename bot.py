@@ -216,6 +216,22 @@ def get_trial_users_for_funnel():
     conn.close()
     return trial_users
 
+def get_expired_users_for_funnel():
+    """Получение пользователей с ИСТЕКШЕЙ подпиской для воронки expired_day3 и expired_day5"""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    cur.execute('''SELECT user_id, username, subscription_until, created_at 
+                   FROM users 
+                   WHERE tariff = %s 
+                   AND subscription_until < %s''',  # 👈 Ищем тех у кого ИСТЕКЛА подписка
+                ('trial', datetime.now()))
+    
+    expired_users = cur.fetchall()
+    cur.close()
+    conn.close()
+    return expired_users
+
 def get_expired_trial_users():
     """Получение пользователей с истекшим пробным периодом"""
     conn = get_db_connection()
