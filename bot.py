@@ -41,7 +41,7 @@ storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
 
 # Импорт системы обратной связи
-from feedback_broadcast import *
+import feedback_broadcast
 
 # База данных PostgreSQL
 def get_db_connection():
@@ -1226,7 +1226,7 @@ async def main():
     init_db()
     logging.info("Bot started successfully!")
 
-    init_feedback_system()
+    feedback_broadcast.init_feedback_system(dp, bot, ADMIN_ID, get_db_connection)
     
     # Запускаем обе фоновые задачи
     asyncio.create_task(check_and_remove_expired())
