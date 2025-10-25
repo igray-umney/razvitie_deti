@@ -1311,13 +1311,13 @@ async def handle_feedback(callback: types.CallbackQuery):
 
 async def main():
     init_db()
-    logging.info("Bot started successfully!")
-
     feedback_broadcast.init_feedback_system(dp, bot, ADMIN_ID, get_db_connection)
+    logging.info("Bot started successfully!")
     
-    # Запускаем обе фоновые задачи
+    # Запускаем ТРИ фоновые задачи
     asyncio.create_task(check_and_remove_expired())
-    asyncio.create_task(sales_funnel())  # Добавили эту строку!
+    asyncio.create_task(sales_funnel())  # для активных trial пользователей
+    asyncio.create_task(expired_users_funnel())  # 👈 НОВАЯ ЗАДАЧА для истекших
     
     await dp.start_polling(bot)
 
