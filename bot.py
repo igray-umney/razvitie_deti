@@ -495,6 +495,77 @@ async def sales_funnel():
             logging.error(f"Error in sales funnel: {e}")
             await asyncio.sleep(1800)
 
+async def expired_users_funnel():
+    """Фоновая задача для отправки сообщений ИСТЕКШИМ пользователям (day3, day5)"""
+    logging.info("Запущена воронка для истекших пользователей")
+    
+    while True:
+        try:
+            await asyncio.sleep(3600)  # Проверка каждый час
+            
+            expired_users = get_expired_users_for_funnel()
+            
+            for user in expired_users:
+                user_id = user['user_id']
+                subscription_until = user['subscription_until']
+                
+                # Считаем сколько часов прошло с момента истечения подписки
+                hours_since_expired = (datetime.now() - subscription_until).total_seconds() / 3600
+                
+                # ДЕНЬ 3 (через 24 часа после истечения = 22-26 часов)
+                if 22 <= hours_since_expired < 26:
+                    if not get_funnel_message_sent(user_id, 'expired_day3'):
+                        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                            [InlineKeyboardButton(text="📅 Выбрать тариф", callback_data="show_tariffs")],
+                            [InlineKeyboardButton(text="💬 Задать вопрос", url="https://t.me/razvitie_dety")]
+                        ])
+                        
+                        success = await send_safe_funnel_message(
+                            user_id,
+                            "💬 Посмотрите, что говорят родители:\n\n"
+                            "\"Вернулись после пробного периода и не жалеем! Ребенок с нетерпением ждет новых заданий!\" - Елена\n\n"
+                            "\"За месяц сын научился считать до 20 и выучил все буквы!\" - Мария\n\n"
+                            "🤔 А все еще думаете? 🤷\n\n"
+                            "💡 Осталось 4 дня специальной цены!\n\n"
+                            "💡 Знаете ли вы:\n"
+                            "• 87% родителей продлевают подписку\n"
+                            "• Родители экономят 2-3 часа в неделю на поиске материалов\n\n"
+                            "⏰ 3 месяца = всего за 5₽ в день!\n\n"
+                            "🎈 Не уверены? Напишите нам - расскажем подробнее!",
+                            reply_markup=keyboard
+                        )
+                        
+                        if success:
+                            mark_funnel_message_sent(user_id, 'expired_day3')
+                            logging.info(f"Отправлено сообщение expired_day3 пользователю {user_id}")
+                
+                # ДЕНЬ 5 (через 72 часа после истечения = 70-74 часа)
+                if 70 <= hours_since_expired < 74:
+                    if not get_funnel_message_sent(user_id, 'expired_day5'):
+                        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                            [InlineKeyboardButton(text="Слишком дорого 😔", callback_data="feedback_expensive")],
+                            [InlineKeyboardButton(text="Не понравился контент", callback_data="feedback_content")],
+                            [InlineKeyboardButton(text="Нужно больше времени ⏰", callback_data="feedback_time")],
+                            [InlineKeyboardButton(text="Другое", callback_data="feedback_other")]
+                        ])
+                        
+                        success = await send_safe_funnel_message(
+                            user_id,
+                            "🙏 Нам жаль что вы не с нами...\n\n"
+                            "Можете рассказать почему не продлили подписку?\n"
+                            "Ваш отзыв поможет нам стать лучше! 💚\n\n"
+                            "📩 А может быть есть что-то, что мы можем исправить прямо сейчас?",
+                            reply_markup=keyboard
+                        )
+                        
+                        if success:
+                            mark_funnel_message_sent(user_id, 'expired_day5')
+                            logging.info(f"Отправлено сообщение expired_day5 пользователю {user_id}")
+            
+        except Exception as e:
+            logging.error(f"Ошибка в expired_users_funnel: {e}")
+            await asyncio.sleep(3600)
+
 async def check_and_remove_expired():
     """Фоновая задача: проверка и удаление пользователей с истекшей подпиской"""
     while True:
