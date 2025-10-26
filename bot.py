@@ -728,6 +728,88 @@ def get_tariffs_menu():
     ])
     return keyboard
 
+@dp.message(Command("start"))
+async def cmd_start(message: types.Message):
+    """Обработчик команды /start"""
+    user_id = message.from_user.id
+    username = message.from_user.username
+    
+    # Проверяем есть ли пользователь в базе
+    user = get_user(user_id)
+    
+    if not user:
+        # Новый пользователь - показываем приветствие
+        await message.answer(
+            f"👋 Привет, {message.from_user.first_name}!\n\n"
+            "Добро пожаловать в бот закрытой группы с развивающими материалами для детей!\n\n"
+            "🎁 Попробуй бесплатно 7 дней! После пробного периода выбери удобную подписку и развивайся вместе с нами 👇",
+            reply_markup=get_main_menu()
+        )
+    else:
+        # Существующий пользователь
+        if is_subscription_active(user_id):
+            await message.answer(
+                f"👋 С возвращением, {message.from_user.first_name}!\n\n"
+                "Твоя подписка активна! 🎉",
+                reply_markup=get_main_menu()
+            )
+        else:
+            await message.answer(
+                f"👋 Привет, {message.from_user.first_name}!\n\n"
+                "Твоя подписка истекла 😔\n\n"
+                "Продли подписку чтобы продолжить пользоваться материалами!",
+                reply_markup=get_main_menu()
+            )
+
+@dp.callback_query(F.data == "trial")
+async def process_trial(callback: types.CallbackQuery):
+    """Обработчик кнопки 'Попробовать бесплатно'"""
+    user_id = callback.from_user.id
+    username = callback.from_user.username
+    
+    # Проверяем не брал ли уже пробный период
+    user = get_user(user_id)
+    
+    if user:
+        await callback.answer(
+            "Вы уже использовали пробный период! 😊",
+            show_alert=True
+        )
+        return
+    
+    # Добавляем пользователя с пробным периодом
+    add_user(user_id, username, TARIFFS['trial']['days'], 'trial')
+    
+    try:
+        # Создаём инвайт-ссылку
+        invite_link = await bot.create_chat_invite_link(
+            CHANNEL_ID,
+            member_limit=1,
+            expire_date=datetime.now() + timedelta(days=TARIFFS['trial']['days'])
+        )
+        
+        await callback.message.edit_text(
+            f"🎉 <b>Поздравляем!</b>\n\n"
+            f"Вам активирован пробный период на {TARIFFS['trial']['days']} дней!\n\n"
+            f"<b>ВАЖНО: Сохрани эту ссылку!</b>\n\n"
+            f"Переходи по ссылке: {invite_link.invite_link}\n\n"
+            f"⏰ Доступ истечет через {TARIFFS['trial']['days']} дней.\n"
+            f"После этого выбери подходящий тариф!\n\n"
+            f"💡 Это ссылка для присоединения к закрытой группе.",
+            parse_mode="HTML"
+        )
+        
+        await callback.answer()
+        
+    except Exception as e:
+        logging.error(f"Error adding user to channel: {e}")
+        await callback.message.edit_text(
+            "❌ Произошла ошибка. Обратитесь к администратору.",
+            reply_markup=get_main_menu()
+        )
+    
+    await callback.answer()
+
 # И изменить текст при показе тарифов:
 @dp.callback_query(F.data == "show_tariffs")
 async def show_tariffs(callback: types.CallbackQuery):
