@@ -811,6 +811,198 @@ async def cmd_start(message: types.Message):
                 reply_markup=get_main_menu()
             )
 
+# КОМАНДЫ ДЛЯ ПРОДЛЕНИЯ TRIAL - добавить в bot.py
+# Вставить после команды /stats (примерно строка 1200-1250)
+
+@dp.message(Command("extend_trial"))
+async def extend_trial(message: types.Message):
+    """ADMIN: Продлить trial всем активным пользователям до 7 дней"""
+    if message.from_user.id != ADMIN_ID:
+        await message.answer("❌ Команда только для администратора")
+        return
+    
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    # Посчитать сколько будет затронуто
+    cur.execute("""
+        SELECT COUNT(*) as count
+        FROM users 
+        WHERE tariff = 'trial' 
+          AND subscription_until > NOW()
+          AND subscription_until < NOW() + INTERVAL '7 days'
+    """)
+    
+    result = cur.fetchone()
+    count = result['count'] if result else 0
+    
+    # Узнать самые ранние и поздние даты истечения
+    cur.execute("""
+        SELECT 
+            MIN(subscription_until) as earliest,
+            MAX(subscription_until) as latest
+        FROM users 
+        WHERE tariff = 'trial' 
+          AND subscription_until > NOW()
+          AND subscription_until < NOW() + INTERVAL '7 days'
+    """)
+    
+    dates = cur.fetchone()
+    
+    cur.close()
+    conn.close()
+    
+    if count == 0:
+        await message.answer("ℹ️ Нет пользователей для продления")
+        return
+    
+    await message.answer(
+        f"📊 <b>Информация о продлении:</b>\n\n"
+        f"👥 Будет продлено: <b>{count}</b> пользователей\n"
+        f"📅 Их trial истекает:\n"
+        f"   • Самый ранний: {dates['earliest'].strftime('%d.%m.%Y %H:%M')}\n"
+        f"   • Самый поздний: {dates['latest'].strftime('%d.%m.%Y %H:%M')}\n\n"
+        f"⏰ После продления все получат trial до:\n"
+        f"   <b>{(datetime.now() + timedelta(days=7)).strftime('%d.%m.%Y %H:%M')}</b>\n\n"
+        f"✅ Продолжить?\n"
+        f"Отправьте: /confirm_extend",
+        parse_mode="HTML"
+    )
+
+@dp.message(Command("confirm_extend"))
+async def confirm_extend(message: types.Message):
+    """ADMIN: Подтвердить продление trial"""
+    if message.from_user.id != ADMIN_ID:
+        await message.answer("❌ Команда только для администратора")
+        return
+    
+    await message.answer("⏳ Продлеваю trial пользователям...")
+    
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    # ПРОДЛИТЬ TRIAL
+    cur.execute("""
+        UPDATE users 
+        SET subscription_until = NOW() + INTERVAL '7 days',
+            updated_at = NOW()
+        WHERE tariff = 'trial' 
+          AND subscription_until > NOW()
+          AND subscription_until < NOW() + INTERVAL '7 days'
+    """)
+    
+    updated = cur.rowcount
+    conn.commit()
+    
+    # Проверить результат
+    cur.execute("""
+        SELECT 
+            COUNT(*) as count,
+            MIN(subscription_until) as earliest,
+            MAX(subscription_until) as latest
+        FROM users 
+        WHERE tariff = 'trial' 
+          AND subscription_until > NOW()
+    """)
+    
+    result = cur.fetchone()
+    
+    cur.close()
+    conn.close()
+    
+    await message.answer(
+        f"✅ <b>Trial успешно продлен!</b>\n\n"
+        f"📊 Обновлено пользователей: <b>{updated}</b>\n"
+        f"👥 Всего активных trial: <b>{result['count']}</b>\n"
+        f"📅 Trial истечет:\n"
+        f"   • {result['earliest'].strftime('%d.%m.%Y')} - {result['latest'].strftime('%d.%m.%Y')}\n\n"
+        f"📢 Теперь отправьте уведомление:\n"
+        f"/notify_trial_extended",
+        parse_mode="HTML"
+    )
+
+@dp.message(Command("notify_trial_extended"))
+async def notify_trial_extended(message: types.Message):
+    """ADMIN: Уведомить всех trial пользователей о продлении периода"""
+    
+    if message.from_user.id != ADMIN_ID:
+        await message.answer("❌ Команда только для администратора")
+        return
+    
+    await message.answer("🚀 Начинаю рассылку уведомлений...")
+    
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    # Получить всех активных trial пользователей
+    cur.execute("""
+        SELECT user_id 
+        FROM users 
+        WHERE tariff = 'trial' 
+          AND subscription_until > NOW()
+        ORDER BY user_id
+    """)
+    
+    users = cur.fetchall()
+    total = len(users)
+    sent = 0
+    blocked = 0
+    errors = 0
+    
+    await message.answer(f"📊 Найдено пользователей: {total}\n\nОтправляю сообщения...")
+    
+    for i, user in enumerate(users):
+        user_id = user['user_id']
+        
+        try:
+            await bot.send_message(
+                user_id,
+                "🎉 <b>Отличная новость!</b>\n\n"
+                "Мы ПРОДЛИЛИ ваш пробный период до <b>7 дней</b>!\n\n"
+                "Теперь у вас еще больше времени чтобы:\n"
+                "✅ Протестировать все материалы\n"
+                "✅ Увидеть результаты с ребенком\n"
+                "✅ Попробовать разные активности\n"
+                "✅ Принять взвешенное решение\n\n"
+                "💡 Это наш подарок вам!\n\n"
+                "Спасибо что вы с нами! 💚",
+                reply_markup=get_main_menu(),
+                parse_mode="HTML"
+            )
+            sent += 1
+            
+            # Каждые 50 сообщений - отчет
+            if (i + 1) % 50 == 0:
+                await message.answer(f"📊 Прогресс: {sent}/{total}")
+            
+        except Exception as e:
+            error_str = str(e)
+            if "blocked" in error_str.lower() or "bot was blocked" in error_str.lower():
+                blocked += 1
+            else:
+                errors += 1
+                logging.error(f"Error notifying {user_id}: {e}")
+        
+        # Пауза между сообщениями (чтобы не превысить лимиты Telegram)
+        await asyncio.sleep(0.05)  # 50ms = ~20 сообщений/сек
+    
+    cur.close()
+    conn.close()
+    
+    # Итоговая статистика
+    await message.answer(
+        f"✅ <b>Рассылка завершена!</b>\n\n"
+        f"📊 Статистика:\n"
+        f"👥 Всего пользователей: {total}\n"
+        f"✅ Успешно отправлено: {sent}\n"
+        f"🚫 Заблокировали бота: {blocked}\n"
+        f"❌ Другие ошибки: {errors}\n\n"
+        f"💡 Охват: {round(100 * sent / total, 1) if total > 0 else 0}%",
+        parse_mode="HTML"
+    )
+
+# ВАЖНО: После использования эти команды можно удалить из кода!
+
 @dp.callback_query(F.data == "trial")
 async def process_trial(callback: types.CallbackQuery):
     """Обработчик кнопки 'Попробовать бесплатно'"""
