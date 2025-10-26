@@ -28,11 +28,12 @@ DATABASE_URL = os.getenv('DATABASE_URL')  # PostgreSQL URL от Railway
 
 # Тарифы
 TARIFFS = {
-    'trial': {'name': 'Пробный период', 'days': 2, 'price': 0, 'old_price': 0},
-    '1month': {'name': '1 месяц', 'days': 30, 'price': 190, 'old_price': 380},
-    '3months': {'name': '3 месяца', 'days': 90, 'price': 450, 'old_price': 1140},
-    '6months': {'name': '6 месяцев', 'days': 180, 'price': 690, 'old_price': 2280},
-    'forever': {'name': 'Навсегда', 'days': 36500, 'price': 900, 'old_price': 4560}
+    'trial': {'name': '7 дней бесплатно', 'days': 7, 'price': 0},
+    '1month': {'name': '1 месяц', 'days': 30, 'price': 99, 'old_price': 299},
+    '3months': {'name': '3 месяца', 'days': 90, 'price': 249, 'old_price': 897},
+    '6months': {'name': '6 месяцев', 'days': 180, 'price': 399, 'old_price': 1794},
+    'forever': {'name': 'Навсегда', 'days': 36500, 'price': 599, 'old_price': 2990}
+}
 }
 
 # Инициализация бота
