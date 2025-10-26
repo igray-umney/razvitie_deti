@@ -744,15 +744,6 @@ async def show_tariffs(callback: types.CallbackQuery):
         parse_mode="Markdown"
     )
     await callback.answer()
-        
-    except Exception as e:
-        logging.error(f"Error adding user to channel: {e}")
-        await callback.message.edit_text(
-            "❌ Произошла ошибка. Обратитесь к администратору.",
-            reply_markup=get_main_menu()
-        )
-    
-    await callback.answer()
 
 @dp.callback_query(F.data.in_(['1month', '3months', '6months', 'forever']))
 async def process_tariff(callback: types.CallbackQuery):
