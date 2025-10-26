@@ -34,7 +34,6 @@ TARIFFS = {
     '6months': {'name': '6 месяцев', 'days': 180, 'price': 399, 'old_price': 1794},
     'forever': {'name': 'Навсегда', 'days': 36500, 'price': 599, 'old_price': 2990}
 }
-}
 
 # Инициализация бота
 bot = Bot(token=BOT_TOKEN)
