@@ -883,13 +883,12 @@ async def confirm_extend(message: types.Message):
     
     # ПРОДЛИТЬ TRIAL
     cur.execute("""
-        UPDATE users 
-        SET subscription_until = NOW() + INTERVAL '7 days',
-            updated_at = NOW()
-        WHERE tariff = 'trial' 
-          AND subscription_until > NOW()
-          AND subscription_until < NOW() + INTERVAL '7 days'
-    """)
+    UPDATE users 
+    SET subscription_until = NOW() + INTERVAL '7 days'
+    WHERE tariff = 'trial' 
+      AND subscription_until > NOW()
+      AND subscription_until < NOW() + INTERVAL '7 days'
+""")
     
     updated = cur.rowcount
     conn.commit()
