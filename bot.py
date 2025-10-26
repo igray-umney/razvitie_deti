@@ -703,61 +703,48 @@ def get_main_menu():
     ])
     return keyboard
 
+# Улучшенная функция get_tariffs_menu() для bot.py
+
 def get_tariffs_menu():
+    """Меню выбора тарифов с выделением популярного"""
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="1 мес. - 380₽ → 190₽ (скидка 50%)", callback_data="1month")],
-        [InlineKeyboardButton(text="3 мес. - 1140₽ → 450₽ (скидка 60%)", callback_data="3months")],
-        [InlineKeyboardButton(text="6 мес. - 2280₽ → 690₽ (скидка 70%)", callback_data="6months")],
-        [InlineKeyboardButton(text="Навсегда - 4560₽ → 900₽ (скидка 80%)", callback_data="forever")],
+        [InlineKeyboardButton(
+            text=f"1️⃣ 1 месяц - {TARIFFS['1month']['price']}₽ (вместо {TARIFFS['1month']['old_price']}₽)",
+            callback_data="1month"
+        )],
+        [InlineKeyboardButton(
+            text=f"🔥 3 месяца - {TARIFFS['3months']['price']}₽ (ПОПУЛЯРНЫЙ!) 🔥",  # 👈 ВЫДЕЛИЛИ
+            callback_data="3months"
+        )],
+        [InlineKeyboardButton(
+            text=f"6️⃣ 6 месяцев - {TARIFFS['6months']['price']}₽ (вместо {TARIFFS['6months']['old_price']}₽)",
+            callback_data="6months"
+        )],
+        [InlineKeyboardButton(
+            text=f"♾️ НАВСЕГДА - {TARIFFS['forever']['price']}₽ 💎 ЛУЧШАЯ ЦЕНА",
+            callback_data="forever"
+        )],
+        [InlineKeyboardButton(text="❓ Вопросы", callback_data="faq")],
         [InlineKeyboardButton(text="◀️ Назад", callback_data="back")]
     ])
     return keyboard
 
-# Обработчики команд
-@dp.message(Command("start"))
-async def cmd_start(message: types.Message):
-    welcome_text = f"""
-👋 Привет, {message.from_user.first_name}!
-
-Добро пожаловать в бот закрытой группы с развивающими материалами для детей!
-
-🎁 Попробуй бесплатно 2 дня! После пробного периода выбери удобную подписку и развивайся вместе с нами 👇
-"""
-    
-    await message.answer(welcome_text, reply_markup=get_main_menu())
-
-@dp.callback_query(F.data == "trial")
-async def process_trial(callback: types.CallbackQuery):
-    user_id = callback.from_user.id
-    username = callback.from_user.username or "unknown"
-    
-    user = get_user(user_id)
-    if user:
-        await callback.answer("❌ Вы уже использовали пробный период!", show_alert=True)
-        return
-    
-    add_user(user_id, username, TARIFFS['trial']['days'], 'trial')
-    
-    try:
-        invite_link = await bot.create_chat_invite_link(
-            CHANNEL_ID,
-            member_limit=1,
-            expire_date=datetime.now() + timedelta(days=2)
-        )
-        
-        # Отправляем сообщение со ссылкой БЕЗ кнопок (чтобы не скрыли)
-        await bot.send_message(
-            user_id,
-            f"🎉 Отлично! Ты получил пробный доступ на 2 дня!\n\n"
-            f"<b>ВАЖНО: Сохрани эту ссылку!</b>\n\n"
-            f"Переходи по ссылке: {invite_link.invite_link}\n\n"
-            f"⏰ Доступ истечет через 2 дня.\n"
-            f"После этого выбери подходящий тариф!\n\n"
-            f"💡 Это ссылка для присоединения к закрытой группе.",
-            parse_mode="HTML"
-        )
-        
-        await callback.answer()
+# И изменить текст при показе тарифов:
+@dp.callback_query(F.data == "show_tariffs")
+async def show_tariffs(callback: types.CallbackQuery):
+    """Показать список тарифов"""
+    await callback.message.edit_text(
+        "📋 **Выберите подходящую подписку:**\n\n"
+        "🎁 Попробуйте 7 дней БЕСПЛАТНО, потом:\n\n"
+        "💰 1 месяц - 99₽\n"
+        "🔥 3 месяца - 249₽ (самый популярный!)\n"
+        "💎 6 месяцев - 399₽\n"
+        "♾️ Навсегда - 599₽ (разовый платёж)\n\n"
+        "⚡️ Цены действуют только сейчас!",
+        reply_markup=get_tariffs_menu(),
+        parse_mode="Markdown"
+    )
+    await callback.answer()
         
     except Exception as e:
         logging.error(f"Error adding user to channel: {e}")
