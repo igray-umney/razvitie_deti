@@ -80,10 +80,6 @@ def init_db():
                   message_type TEXT,
                   sent_at TIMESTAMP,
                   UNIQUE(user_id, message_type))''')
-    
-    conn.commit()
-    cur.close()
-    conn.close()
 
     cur.execute('''CREATE TABLE IF NOT EXISTS welcome_messages
                  (user_id BIGINT PRIMARY KEY,
