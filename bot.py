@@ -1421,161 +1421,140 @@ async def handle_feedback(callback: types.CallbackQuery):
 # КОМАНДА ДИАГНОСТИКИ БАЗЫ ДАННЫХ
 # Добавить в bot.py после команды /stats
 
+# ПРОСТАЯ КОМАНДА ДИАГНОСТИКИ (заменить admin_check_db в bot.py)
+
 @dp.message(Command("checkdb"))
 async def admin_check_db(message: types.Message):
-    """Диагностика базы данных - поиск проблем"""
+    """Диагностика базы данных - простая версия"""
     if message.from_user.id != ADMIN_ID:
         return
     
-    await message.answer("🔍 Запускаю диагностику базы данных...")
+    await message.answer("🔍 Анализирую базу данных...")
     
-    conn = get_db_connection()
-    cur = conn.cursor()
-    
-    # 1. Количество записей VS уникальных user_id
-    cur.execute('SELECT COUNT(*) as total FROM users')
-    total_records = cur.fetchone()['total']
-    
-    cur.execute('SELECT COUNT(DISTINCT user_id) as unique FROM users')
-    unique_users = cur.fetchone()['unique']
-    
-    # 2. Проверка дублей
-    cur.execute('''
-        SELECT user_id, COUNT(*) as count
-        FROM users
-        GROUP BY user_id
-        HAVING COUNT(*) > 1
-        LIMIT 5
-    ''')
-    duplicates = cur.fetchall()
-    
-    # 3. Проверка за последние 5 часов (с учетом UTC)
-    cur.execute('''
-        SELECT COUNT(*) as count
-        FROM users
-        WHERE created_at >= NOW() - INTERVAL '5 hours'
-    ''')
-    last_5h = cur.fetchone()['count']
-    
-    # 4. Проверка максимального ID
-    cur.execute('SELECT MAX(user_id) as max_id FROM users')
-    max_id = cur.fetchone()['max_id']
-    
-    # 5. Timezone базы данных
-    cur.execute('SHOW timezone')
-    timezone = cur.fetchone()['timezone']
-    
-    # 6. Текущее время базы
-    cur.execute('SELECT NOW() as current_time')
-    db_time = cur.fetchone()['current_time']
-    
-    # 7. Новые пользователи по часам (последние 12 часов)
-    cur.execute('''
-        SELECT 
-            DATE_TRUNC('hour', created_at) as hour,
-            COUNT(*) as count
-        FROM users
-        WHERE created_at >= NOW() - INTERVAL '12 hours'
-        GROUP BY hour
-        ORDER BY hour DESC
-    ''')
-    hourly_stats = cur.fetchall()
-    
-    # 8. Проверка удалённых записей (разница между max(id) и count)
-    # Только если есть колонка id (serial)
     try:
-        cur.execute('SELECT MAX(id) as max_id FROM users')
-        max_record_id = cur.fetchone()['max_id']
-        deleted = max_record_id - total_records if max_record_id else 0
-    except:
-        deleted = "N/A (нет колонки id)"
-    
-    cur.close()
-    conn.close()
-    
-    # Формируем отчет
-    report = f"""
-🔍 **ДИАГНОСТИКА БАЗЫ ДАННЫХ**
-
-📊 **Основная статистика:**
-• Всего записей: {total_records}
-• Уникальных user_id: {unique_users}
-• Разница: {total_records - unique_users}
-
-⚠️ **Дубликаты user_id:**
-"""
-    
-    if duplicates:
-        report += "**НАЙДЕНЫ ДУБЛИ!** ❌\n"
-        for dup in duplicates:
-            report += f"• User {dup['user_id']}: {dup['count']} записей\n"
-    else:
-        report += "Дублей не найдено ✅\n"
-    
-    report += f"""
-⏰ **Временные данные:**
-• Timezone БД: {timezone}
-• Текущее время БД: {db_time.strftime('%Y-%m-%d %H:%M:%S')}
-• За последние 5 часов: {last_5h} новых
-
-🗑️ **Удалённые записи:**
-• {deleted}
-
-📈 **По часам (последние 12ч):**
-"""
-    
-    for stat in hourly_stats[:10]:
-        hour = stat['hour'].strftime('%H:%M')
-        report += f"• {hour}: {stat['count']} чел\n"
-    
-    report += f"""
-🔢 **Дополнительно:**
-• Максимальный user_id: {max_id}
-
-💡 **Вывод:**
-"""
-    
-    if total_records != unique_users:
-        report += "⚠️ ЕСТЬ ДУБЛИКАТЫ! Один user_id имеет несколько записей!\n"
-    elif last_5h < 50:
-        report += "⚠️ За 5 часов мало регистраций! Возможно timezone проблема?\n"
-    else:
-        report += "✅ База данных в норме!"
-    
-    await message.answer(report, parse_mode="Markdown")
-
-# ТАКЖЕ ДОБАВИМ КОМАНДУ ДЛЯ ПРОСМОТРА ПОСЛЕДНИХ ПОЛЬЗОВАТЕЛЕЙ
-
-@dp.message(Command("recent"))
-async def admin_recent_users(message: types.Message):
-    """Показать последних зарегистрированных пользователей"""
-    if message.from_user.id != ADMIN_ID:
-        return
-    
-    conn = get_db_connection()
-    cur = conn.cursor()
-    
-    # Последние 20 пользователей
-    cur.execute('''
-        SELECT user_id, username, tariff, created_at
-        FROM users
-        ORDER BY created_at DESC
-        LIMIT 20
-    ''')
-    
-    users = cur.fetchall()
-    cur.close()
-    conn.close()
-    
-    report = "👥 **ПОСЛЕДНИЕ 20 РЕГИСТРАЦИЙ:**\n\n"
-    
-    for i, user in enumerate(users, 1):
-        username = user['username'] or 'без username'
-        created = user['created_at'].strftime('%d.%m %H:%M')
-        tariff = user['tariff']
-        report += f"{i}. @{username} | {tariff} | {created}\n"
-    
-    await message.answer(report, parse_mode="Markdown")
+        conn = get_db_connection()
+        cur = conn.cursor()
+        
+        # 1. Основная статистика
+        cur.execute('SELECT COUNT(*) as total FROM users')
+        total = cur.fetchone()['total']
+        
+        cur.execute('SELECT COUNT(DISTINCT user_id) as unique_users FROM users')
+        unique = cur.fetchone()['unique_users']
+        
+        # 2. Дубли
+        cur.execute('''
+            SELECT user_id, username, COUNT(*) as count
+            FROM users
+            GROUP BY user_id, username
+            HAVING COUNT(*) > 1
+            ORDER BY count DESC
+            LIMIT 10
+        ''')
+        dupes = cur.fetchall()
+        
+        # 3. За последние часы
+        cur.execute('''
+            SELECT 
+                DATE_TRUNC('hour', created_at) as hour,
+                COUNT(*) as count
+            FROM users
+            WHERE created_at >= NOW() - INTERVAL '12 hours'
+            GROUP BY hour
+            ORDER BY hour DESC
+            LIMIT 12
+        ''')
+        hourly = cur.fetchall()
+        
+        # 4. За последние 5 часов
+        cur.execute('''
+            SELECT COUNT(*) as count
+            FROM users
+            WHERE created_at >= NOW() - INTERVAL '5 hours'
+        ''')
+        last_5h = cur.fetchone()['count']
+        
+        # 5. Активных VS неактивных
+        cur.execute('''
+            SELECT 
+                COUNT(*) FILTER (WHERE subscription_until > NOW()) as active,
+                COUNT(*) FILTER (WHERE subscription_until <= NOW()) as expired,
+                COUNT(*) FILTER (WHERE tariff = 'trial') as trial,
+                COUNT(*) FILTER (WHERE tariff != 'trial') as paid
+            FROM users
+        ''')
+        subs = cur.fetchone()
+        
+        # 6. Текущее время БД
+        cur.execute('SELECT NOW() as db_time')
+        db_time = cur.fetchone()['db_time']
+        
+        cur.close()
+        conn.close()
+        
+        # Формируем отчет
+        report = "🔍 **ДЕТАЛЬНАЯ ДИАГНОСТИКА**\n\n"
+        
+        # Блок 1: Основное
+        report += "📊 **Записи в базе:**\n"
+        report += f"• Всего записей: {total}\n"
+        report += f"• Уникальных user_id: {unique}\n"
+        
+        if total != unique:
+            report += f"• ⚠️ Дублей: {total - unique}\n\n"
+        else:
+            report += f"• ✅ Дублей нет\n\n"
+        
+        # Блок 2: Дубли если есть
+        if dupes:
+            report += "⚠️ **НАЙДЕНЫ ДУБЛИКАТЫ:**\n"
+            for d in dupes[:5]:
+                username = d['username'] or 'без username'
+                report += f"• @{username} (ID: {d['user_id']}): {d['count']} записей\n"
+            report += "\n"
+        
+        # Блок 3: Подписки
+        report += "💎 **Статус подписок:**\n"
+        report += f"• Активные: {subs['active']}\n"
+        report += f"• Истёкшие: {subs['expired']}\n"
+        report += f"• Trial: {subs['trial']}\n"
+        report += f"• Платные: {subs['paid']}\n\n"
+        
+        # Блок 4: За последние часы
+        report += f"⏰ **За последние 5 часов:** {last_5h} регистраций\n\n"
+        
+        report += "📈 **Регистрации по часам (UTC):**\n"
+        for h in hourly[:8]:
+            hour_str = h['hour'].strftime('%d.%m %H:00')
+            report += f"• {hour_str}: {h['count']} чел\n"
+        
+        report += f"\n🕐 **Время БД:** {db_time.strftime('%Y-%m-%d %H:%M:%S')} UTC\n"
+        
+        # Вывод
+        report += "\n💡 **Вывод:**\n"
+        
+        if total != unique:
+            report += "⚠️ В базе есть дубликаты записей!\n"
+            report += "Причина: функция add_user() может создавать дубли\n"
+        elif last_5h < 50:
+            report += f"⚠️ За 5ч всего {last_5h} регистраций\n"
+            report += "Это меньше ожидаемого (~100)\n"
+        else:
+            report += "✅ Всё отлично! База в норме!\n"
+        
+        # Активация
+        activation_rate = round(100 * subs['active'] / total, 1) if total > 0 else 0
+        report += f"\n📊 **Активация:** {activation_rate}%\n"
+        
+        if activation_rate < 70:
+            report += "💡 Можно улучшить с приветственным сообщением!"
+        
+        await message.answer(report, parse_mode="Markdown")
+        
+    except Exception as e:
+        await message.answer(f"❌ Ошибка:\n{str(e)}")
+        import traceback
+        logging.error(f"Checkdb error: {e}\n{traceback.format_exc()}")
 
 async def main():
     init_db()
