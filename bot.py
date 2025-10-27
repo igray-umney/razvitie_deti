@@ -85,6 +85,15 @@ def init_db():
     cur.close()
     conn.close()
 
+    cur.execute('''CREATE TABLE IF NOT EXISTS welcome_messages
+                 (user_id BIGINT PRIMARY KEY,
+                  sent_at TIMESTAMP,
+                  opened BOOLEAN DEFAULT FALSE)''')
+    
+    conn.commit()
+    cur.close()
+    conn.close()
+
 def add_user(user_id, username, days, tariff):
     """Добавление/обновление пользователя"""
     conn = get_db_connection()
@@ -1401,6 +1410,39 @@ async def handle_survey(callback: types.CallbackQuery):
 async def handle_feedback(callback: types.CallbackQuery):
     """Обработка обратной связи"""
     await callback.answer("Спасибо за обратную связь! 🙏", show_alert=True)
+
+@dp.callback_query(F.data == "how_it_works")
+async def how_it_works(callback: types.CallbackQuery):
+    """Инструкция как работает бот"""
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🎁 Активировать пробный период", callback_data="trial")],
+        [InlineKeyboardButton(text="◀️ Назад", callback_data="back")]
+    ])
+    
+    await callback.message.edit_text(
+        "📖 <b>КАК ЭТО РАБОТАЕТ?</b>\n\n"
+        "<b>Шаг 1:</b> Активация пробного периода\n"
+        "Нажмите кнопку \"Активировать пробный период\" и получите ссылку на закрытую группу.\n\n"
+        "<b>Шаг 2:</b> Присоединитесь к группе\n"
+        "Перейдите по ссылке и вступите в закрытую группу с материалами.\n\n"
+        "<b>Шаг 3:</b> Начните заниматься\n"
+        "В группе вы найдёте:\n"
+        "• 📚 Развивающие игры и задания\n"
+        "• 🎨 Творческие активности\n"
+        "• 📖 Обучающие материалы\n"
+        "• 🎯 Готовые занятия на каждый день\n\n"
+        "<b>Шаг 4:</b> Оцените результат\n"
+        "За 7 дней вы увидите прогресс ребенка и поймёте подходит ли вам наш клуб.\n\n"
+        "💡 <b>Важно:</b>\n"
+        "• Доступ бесплатный 7 дней\n"
+        "• Никакой предоплаты\n"
+        "• Можно отменить в любой момент\n\n"
+        "🎁 <b>Попробуйте прямо сейчас!</b>",
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+    await callback.answer()
     
     # Уведомляем админа
     if ADMIN_ID:
@@ -1555,6 +1597,85 @@ async def admin_check_db(message: types.Message):
         await message.answer(f"❌ Ошибка:\n{str(e)}")
         import traceback
         logging.error(f"Checkdb error: {e}\n{traceback.format_exc()}")
+
+async def send_welcome_messages():
+    """Фоновая задача: отправка приветственных сообщений через 5-10 минут после регистрации"""
+    logging.info("Welcome messages task started!")
+    
+    while True:
+        try:
+            await asyncio.sleep(60)  # Проверка каждую минуту
+            
+            conn = get_db_connection()
+            cur = conn.cursor()
+            
+            # Найти пользователей зарегистрировавшихся 5-10 минут назад
+            # которым ещё не отправили приветствие
+            cur.execute("""
+                SELECT u.user_id, u.username
+                FROM users u
+                LEFT JOIN welcome_messages wm ON u.user_id = wm.user_id
+                WHERE u.created_at >= NOW() - INTERVAL '10 minutes'
+                  AND u.created_at <= NOW() - INTERVAL '5 minutes'
+                  AND wm.user_id IS NULL
+                  AND u.tariff = 'trial'
+                  AND u.subscription_until > NOW()
+            """)
+            
+            users = cur.fetchall()
+            
+            for user in users:
+                user_id = user['user_id']
+                
+                try:
+                    # ПРИВЕТСТВЕННОЕ СООБЩЕНИЕ
+                    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text="🎁 Активировать пробный период", callback_data="trial")],
+                        [InlineKeyboardButton(text="📋 Как это работает?", callback_data="how_it_works")],
+                        [InlineKeyboardButton(text="❓ Частые вопросы", callback_data="faq")]
+                    ])
+                    
+                    await bot.send_message(
+                        user_id,
+                        "👋 Привет!\n\n"
+                        "Я вижу вы только что присоединились к нам!\n\n"
+                        "🎯 <b>Вот что вас ждёт:</b>\n\n"
+                        "🎁 <b>7 дней БЕСПЛАТНОГО доступа</b> ко всем материалам\n"
+                        "📚 <b>5000+ развивающих материалов</b> для детей\n"
+                        "🎨 Игры, задания, поделки, обучение\n"
+                        "⚡️ Новые материалы каждую неделю\n\n"
+                        "💡 <b>Как начать?</b>\n\n"
+                        "1️⃣ Нажмите кнопку \"Активировать пробный период\"\n"
+                        "2️⃣ Получите ссылку на закрытую группу\n"
+                        "3️⃣ Начните заниматься с ребенком прямо сегодня!\n\n"
+                        "⏰ Это займет всего 30 секунд!\n\n"
+                        "👇 Нажимайте кнопку ниже:",
+                        reply_markup=keyboard,
+                        parse_mode="HTML"
+                    )
+                    
+                    # Отметить что отправили
+                    cur.execute("""
+                        INSERT INTO welcome_messages (user_id, sent_at)
+                        VALUES (%s, NOW())
+                        ON CONFLICT (user_id) DO NOTHING
+                    """, (user_id,))
+                    conn.commit()
+                    
+                    logging.info(f"Welcome message sent to user {user_id}")
+                    
+                    # Небольшая пауза между сообщениями
+                    await asyncio.sleep(0.1)
+                    
+                except Exception as e:
+                    logging.error(f"Error sending welcome to {user_id}: {e}")
+            
+            cur.close()
+            conn.close()
+            
+        except Exception as e:
+            logging.error(f"Error in send_welcome_messages: {e}")
+            await asyncio.sleep(60)
 
 async def main():
     init_db()
