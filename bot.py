@@ -1632,6 +1632,7 @@ async def send_welcome_messages():
                     # ПРИВЕТСТВЕННОЕ СООБЩЕНИЕ
                     keyboard = InlineKeyboardMarkup(inline_keyboard=[
                         [InlineKeyboardButton(text="🎁 Активировать пробный период", callback_data="trial")],
+                        [InlineKeyboardButton(text="🎥 Видео инструкция", url="https://t.me/instrukcii_baza/35")],
                         [InlineKeyboardButton(text="📋 Как это работает?", callback_data="how_it_works")],
                         [InlineKeyboardButton(text="❓ Частые вопросы", callback_data="faq")]
                     ])
