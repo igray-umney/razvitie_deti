@@ -811,197 +811,6 @@ async def cmd_start(message: types.Message):
                 reply_markup=get_main_menu()
             )
 
-# КОМАНДЫ ДЛЯ ПРОДЛЕНИЯ TRIAL - добавить в bot.py
-# Вставить после команды /stats (примерно строка 1200-1250)
-
-@dp.message(Command("extend_trial"))
-async def extend_trial(message: types.Message):
-    """ADMIN: Продлить trial всем активным пользователям до 7 дней"""
-    if message.from_user.id != ADMIN_ID:
-        await message.answer("❌ Команда только для администратора")
-        return
-    
-    conn = get_db_connection()
-    cur = conn.cursor()
-    
-    # Посчитать сколько будет затронуто
-    cur.execute("""
-        SELECT COUNT(*) as count
-        FROM users 
-        WHERE tariff = 'trial' 
-          AND subscription_until > NOW()
-          AND subscription_until < NOW() + INTERVAL '7 days'
-    """)
-    
-    result = cur.fetchone()
-    count = result['count'] if result else 0
-    
-    # Узнать самые ранние и поздние даты истечения
-    cur.execute("""
-        SELECT 
-            MIN(subscription_until) as earliest,
-            MAX(subscription_until) as latest
-        FROM users 
-        WHERE tariff = 'trial' 
-          AND subscription_until > NOW()
-          AND subscription_until < NOW() + INTERVAL '7 days'
-    """)
-    
-    dates = cur.fetchone()
-    
-    cur.close()
-    conn.close()
-    
-    if count == 0:
-        await message.answer("ℹ️ Нет пользователей для продления")
-        return
-    
-    await message.answer(
-        f"📊 <b>Информация о продлении:</b>\n\n"
-        f"👥 Будет продлено: <b>{count}</b> пользователей\n"
-        f"📅 Их trial истекает:\n"
-        f"   • Самый ранний: {dates['earliest'].strftime('%d.%m.%Y %H:%M')}\n"
-        f"   • Самый поздний: {dates['latest'].strftime('%d.%m.%Y %H:%M')}\n\n"
-        f"⏰ После продления все получат trial до:\n"
-        f"   <b>{(datetime.now() + timedelta(days=7)).strftime('%d.%m.%Y %H:%M')}</b>\n\n"
-        f"✅ Продолжить?\n"
-        f"Отправьте: /confirm_extend",
-        parse_mode="HTML"
-    )
-
-@dp.message(Command("confirm_extend"))
-async def confirm_extend(message: types.Message):
-    """ADMIN: Подтвердить продление trial"""
-    if message.from_user.id != ADMIN_ID:
-        await message.answer("❌ Команда только для администратора")
-        return
-    
-    await message.answer("⏳ Продлеваю trial пользователям...")
-    
-    conn = get_db_connection()
-    cur = conn.cursor()
-    
-    # ПРОДЛИТЬ TRIAL
-    cur.execute("""
-    UPDATE users 
-    SET subscription_until = NOW() + INTERVAL '7 days'
-    WHERE tariff = 'trial' 
-      AND subscription_until > NOW()
-      AND subscription_until < NOW() + INTERVAL '7 days'
-""")
-    
-    updated = cur.rowcount
-    conn.commit()
-    
-    # Проверить результат
-    cur.execute("""
-        SELECT 
-            COUNT(*) as count,
-            MIN(subscription_until) as earliest,
-            MAX(subscription_until) as latest
-        FROM users 
-        WHERE tariff = 'trial' 
-          AND subscription_until > NOW()
-    """)
-    
-    result = cur.fetchone()
-    
-    cur.close()
-    conn.close()
-    
-    await message.answer(
-        f"✅ <b>Trial успешно продлен!</b>\n\n"
-        f"📊 Обновлено пользователей: <b>{updated}</b>\n"
-        f"👥 Всего активных trial: <b>{result['count']}</b>\n"
-        f"📅 Trial истечет:\n"
-        f"   • {result['earliest'].strftime('%d.%m.%Y')} - {result['latest'].strftime('%d.%m.%Y')}\n\n"
-        f"📢 Теперь отправьте уведомление:\n"
-        f"/notify_trial_extended",
-        parse_mode="HTML"
-    )
-
-@dp.message(Command("notify_trial_extended"))
-async def notify_trial_extended(message: types.Message):
-    """ADMIN: Уведомить всех trial пользователей о продлении периода"""
-    
-    if message.from_user.id != ADMIN_ID:
-        await message.answer("❌ Команда только для администратора")
-        return
-    
-    await message.answer("🚀 Начинаю рассылку уведомлений...")
-    
-    conn = get_db_connection()
-    cur = conn.cursor()
-    
-    # Получить всех активных trial пользователей
-    cur.execute("""
-        SELECT user_id 
-        FROM users 
-        WHERE tariff = 'trial' 
-          AND subscription_until > NOW()
-        ORDER BY user_id
-    """)
-    
-    users = cur.fetchall()
-    total = len(users)
-    sent = 0
-    blocked = 0
-    errors = 0
-    
-    await message.answer(f"📊 Найдено пользователей: {total}\n\nОтправляю сообщения...")
-    
-    for i, user in enumerate(users):
-        user_id = user['user_id']
-        
-        try:
-            await bot.send_message(
-                user_id,
-                "🎉 <b>Отличная новость!</b>\n\n"
-                "Мы ПРОДЛИЛИ ваш пробный период до <b>7 дней</b>!\n\n"
-                "Теперь у вас еще больше времени чтобы:\n"
-                "✅ Протестировать все материалы\n"
-                "✅ Увидеть результаты с ребенком\n"
-                "✅ Попробовать разные активности\n"
-                "✅ Принять взвешенное решение\n\n"
-                "💡 Это наш подарок вам!\n\n"
-                "Спасибо что вы с нами! 💚",
-                reply_markup=get_main_menu(),
-                parse_mode="HTML"
-            )
-            sent += 1
-            
-            # Каждые 50 сообщений - отчет
-            if (i + 1) % 50 == 0:
-                await message.answer(f"📊 Прогресс: {sent}/{total}")
-            
-        except Exception as e:
-            error_str = str(e)
-            if "blocked" in error_str.lower() or "bot was blocked" in error_str.lower():
-                blocked += 1
-            else:
-                errors += 1
-                logging.error(f"Error notifying {user_id}: {e}")
-        
-        # Пауза между сообщениями (чтобы не превысить лимиты Telegram)
-        await asyncio.sleep(0.05)  # 50ms = ~20 сообщений/сек
-    
-    cur.close()
-    conn.close()
-    
-    # Итоговая статистика
-    await message.answer(
-        f"✅ <b>Рассылка завершена!</b>\n\n"
-        f"📊 Статистика:\n"
-        f"👥 Всего пользователей: {total}\n"
-        f"✅ Успешно отправлено: {sent}\n"
-        f"🚫 Заблокировали бота: {blocked}\n"
-        f"❌ Другие ошибки: {errors}\n\n"
-        f"💡 Охват: {round(100 * sent / total, 1) if total > 0 else 0}%",
-        parse_mode="HTML"
-    )
-
-# ВАЖНО: После использования эти команды можно удалить из кода!
-
 @dp.callback_query(F.data == "trial")
 async def process_trial(callback: types.CallbackQuery):
     """Обработчик кнопки 'Попробовать бесплатно'"""
@@ -1608,6 +1417,165 @@ async def handle_feedback(callback: types.CallbackQuery):
             f"👤 @{callback.from_user.username} (ID: {callback.from_user.id})\n"
             f"💭 {feedback_names.get(feedback, feedback)}"
         )
+
+# КОМАНДА ДИАГНОСТИКИ БАЗЫ ДАННЫХ
+# Добавить в bot.py после команды /stats
+
+@dp.message(Command("checkdb"))
+async def admin_check_db(message: types.Message):
+    """Диагностика базы данных - поиск проблем"""
+    if message.from_user.id != ADMIN_ID:
+        return
+    
+    await message.answer("🔍 Запускаю диагностику базы данных...")
+    
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    # 1. Количество записей VS уникальных user_id
+    cur.execute('SELECT COUNT(*) as total FROM users')
+    total_records = cur.fetchone()['total']
+    
+    cur.execute('SELECT COUNT(DISTINCT user_id) as unique FROM users')
+    unique_users = cur.fetchone()['unique']
+    
+    # 2. Проверка дублей
+    cur.execute('''
+        SELECT user_id, COUNT(*) as count
+        FROM users
+        GROUP BY user_id
+        HAVING COUNT(*) > 1
+        LIMIT 5
+    ''')
+    duplicates = cur.fetchall()
+    
+    # 3. Проверка за последние 5 часов (с учетом UTC)
+    cur.execute('''
+        SELECT COUNT(*) as count
+        FROM users
+        WHERE created_at >= NOW() - INTERVAL '5 hours'
+    ''')
+    last_5h = cur.fetchone()['count']
+    
+    # 4. Проверка максимального ID
+    cur.execute('SELECT MAX(user_id) as max_id FROM users')
+    max_id = cur.fetchone()['max_id']
+    
+    # 5. Timezone базы данных
+    cur.execute('SHOW timezone')
+    timezone = cur.fetchone()['timezone']
+    
+    # 6. Текущее время базы
+    cur.execute('SELECT NOW() as current_time')
+    db_time = cur.fetchone()['current_time']
+    
+    # 7. Новые пользователи по часам (последние 12 часов)
+    cur.execute('''
+        SELECT 
+            DATE_TRUNC('hour', created_at) as hour,
+            COUNT(*) as count
+        FROM users
+        WHERE created_at >= NOW() - INTERVAL '12 hours'
+        GROUP BY hour
+        ORDER BY hour DESC
+    ''')
+    hourly_stats = cur.fetchall()
+    
+    # 8. Проверка удалённых записей (разница между max(id) и count)
+    # Только если есть колонка id (serial)
+    try:
+        cur.execute('SELECT MAX(id) as max_id FROM users')
+        max_record_id = cur.fetchone()['max_id']
+        deleted = max_record_id - total_records if max_record_id else 0
+    except:
+        deleted = "N/A (нет колонки id)"
+    
+    cur.close()
+    conn.close()
+    
+    # Формируем отчет
+    report = f"""
+🔍 **ДИАГНОСТИКА БАЗЫ ДАННЫХ**
+
+📊 **Основная статистика:**
+• Всего записей: {total_records}
+• Уникальных user_id: {unique_users}
+• Разница: {total_records - unique_users}
+
+⚠️ **Дубликаты user_id:**
+"""
+    
+    if duplicates:
+        report += "**НАЙДЕНЫ ДУБЛИ!** ❌\n"
+        for dup in duplicates:
+            report += f"• User {dup['user_id']}: {dup['count']} записей\n"
+    else:
+        report += "Дублей не найдено ✅\n"
+    
+    report += f"""
+⏰ **Временные данные:**
+• Timezone БД: {timezone}
+• Текущее время БД: {db_time.strftime('%Y-%m-%d %H:%M:%S')}
+• За последние 5 часов: {last_5h} новых
+
+🗑️ **Удалённые записи:**
+• {deleted}
+
+📈 **По часам (последние 12ч):**
+"""
+    
+    for stat in hourly_stats[:10]:
+        hour = stat['hour'].strftime('%H:%M')
+        report += f"• {hour}: {stat['count']} чел\n"
+    
+    report += f"""
+🔢 **Дополнительно:**
+• Максимальный user_id: {max_id}
+
+💡 **Вывод:**
+"""
+    
+    if total_records != unique_users:
+        report += "⚠️ ЕСТЬ ДУБЛИКАТЫ! Один user_id имеет несколько записей!\n"
+    elif last_5h < 50:
+        report += "⚠️ За 5 часов мало регистраций! Возможно timezone проблема?\n"
+    else:
+        report += "✅ База данных в норме!"
+    
+    await message.answer(report, parse_mode="Markdown")
+
+# ТАКЖЕ ДОБАВИМ КОМАНДУ ДЛЯ ПРОСМОТРА ПОСЛЕДНИХ ПОЛЬЗОВАТЕЛЕЙ
+
+@dp.message(Command("recent"))
+async def admin_recent_users(message: types.Message):
+    """Показать последних зарегистрированных пользователей"""
+    if message.from_user.id != ADMIN_ID:
+        return
+    
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    # Последние 20 пользователей
+    cur.execute('''
+        SELECT user_id, username, tariff, created_at
+        FROM users
+        ORDER BY created_at DESC
+        LIMIT 20
+    ''')
+    
+    users = cur.fetchall()
+    cur.close()
+    conn.close()
+    
+    report = "👥 **ПОСЛЕДНИЕ 20 РЕГИСТРАЦИЙ:**\n\n"
+    
+    for i, user in enumerate(users, 1):
+        username = user['username'] or 'без username'
+        created = user['created_at'].strftime('%d.%m %H:%M')
+        tariff = user['tariff']
+        report += f"{i}. @{username} | {tariff} | {created}\n"
+    
+    await message.answer(report, parse_mode="Markdown")
 
 async def main():
     init_db()
