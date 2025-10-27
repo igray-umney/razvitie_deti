@@ -1549,7 +1549,7 @@ async def admin_check_db(message: types.Message):
         if activation_rate < 70:
             report += "💡 Можно улучшить с приветственным сообщением!"
         
-        await message.answer(report, parse_mode="Markdown")
+        await message.answer(report)
         
     except Exception as e:
         await message.answer(f"❌ Ошибка:\n{str(e)}")
