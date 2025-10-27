@@ -1598,6 +1598,9 @@ async def admin_check_db(message: types.Message):
         import traceback
         logging.error(f"Checkdb error: {e}\n{traceback.format_exc()}")
 
+# ИСПРАВЛЕННАЯ ФУНКЦИЯ send_welcome_messages()
+# Заменить в bot.py старую версию на эту
+
 async def send_welcome_messages():
     """Фоновая задача: отправка приветственных сообщений через 5-10 минут после регистрации"""
     logging.info("Welcome messages task started!")
@@ -1606,11 +1609,10 @@ async def send_welcome_messages():
         try:
             await asyncio.sleep(60)  # Проверка каждую минуту
             
+            # Получаем список пользователей
             conn = get_db_connection()
             cur = conn.cursor()
             
-            # Найти пользователей зарегистрировавшихся 5-10 минут назад
-            # которым ещё не отправили приветствие
             cur.execute("""
                 SELECT u.user_id, u.username
                 FROM users u
@@ -1623,7 +1625,10 @@ async def send_welcome_messages():
             """)
             
             users = cur.fetchall()
+            cur.close()
+            conn.close()
             
+            # Обрабатываем каждого пользователя отдельно
             for user in users:
                 user_id = user['user_id']
                 
@@ -1654,13 +1659,17 @@ async def send_welcome_messages():
                         parse_mode="HTML"
                     )
                     
-                    # Отметить что отправили
-                    cur.execute("""
+                    # Отметить что отправили (в отдельном соединении)
+                    conn2 = get_db_connection()
+                    cur2 = conn2.cursor()
+                    cur2.execute("""
                         INSERT INTO welcome_messages (user_id, sent_at)
                         VALUES (%s, NOW())
                         ON CONFLICT (user_id) DO NOTHING
                     """, (user_id,))
-                    conn.commit()
+                    conn2.commit()
+                    cur2.close()
+                    conn2.close()
                     
                     logging.info(f"Welcome message sent to user {user_id}")
                     
@@ -1669,9 +1678,6 @@ async def send_welcome_messages():
                     
                 except Exception as e:
                     logging.error(f"Error sending welcome to {user_id}: {e}")
-            
-            cur.close()
-            conn.close()
             
         except Exception as e:
             logging.error(f"Error in send_welcome_messages: {e}")
