@@ -1686,6 +1686,7 @@ async def main():
     asyncio.create_task(check_and_remove_expired())
     asyncio.create_task(sales_funnel())  # для активных trial пользователей
     asyncio.create_task(expired_users_funnel())  # 👈 НОВАЯ ЗАДАЧА для истекших
+    asyncio.create_task(send_welcome_messages())
     
     await dp.start_polling(bot)
 
