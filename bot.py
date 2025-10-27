@@ -1685,13 +1685,21 @@ async def main():
     feedback_broadcast.init_feedback_system(dp, bot, ADMIN_ID, get_db_connection)
     logging.info("Bot started successfully!")
     
-    # Запускаем ТРИ фоновые задачи
+    # Запускаем фоновые задачи
     asyncio.create_task(check_and_remove_expired())
-    asyncio.create_task(sales_funnel())  # для активных trial пользователей
-    asyncio.create_task(expired_users_funnel())  # 👈 НОВАЯ ЗАДАЧА для истекших
+    asyncio.create_task(sales_funnel())
+    asyncio.create_task(expired_users_funnel())
     asyncio.create_task(send_welcome_messages())
     
-    await dp.start_polling(bot)
+    # Polling с auto-restart при ошибках
+    while True:
+        try:
+            logging.info("Starting polling...")
+            await dp.start_polling(bot, timeout=30, request_timeout=20)
+        except Exception as e:
+            logging.error(f"Polling crashed: {e}")
+            logging.info("Restarting in 5 seconds...")
+            await asyncio.sleep(5)
 
 if __name__ == '__main__':
     asyncio.run(main())
