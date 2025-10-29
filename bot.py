@@ -308,7 +308,7 @@ async def sales_funnel():
             await asyncio.sleep(1800)  # Проверка каждые 30 минут
             
             # Получаем активных пользователей с пробным периодом
-            trial_users = get_active_trial_users()
+            trial_users = get_trial_users_for_funnel()
             
             for user in trial_users:
                 user_id = user['user_id']
