@@ -1449,12 +1449,6 @@ async def how_it_works(callback: types.CallbackQuery):
             'other': 'Другое'
         }
         feedback = callback.data.replace('feedback_', '')
-        await bot.send_message(
-            ADMIN_ID,
-            f"📊 Новый отзыв!\n"
-            f"👤 @{callback.from_user.username} (ID: {callback.from_user.id})\n"
-            f"💭 {feedback_names.get(feedback, feedback)}"
-        )
 
 # КОМАНДА ДИАГНОСТИКИ БАЗЫ ДАННЫХ
 # Добавить в bot.py после команды /stats
