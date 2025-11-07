@@ -879,7 +879,7 @@ async def show_tariffs(callback: types.CallbackQuery):
     )
     await callback.answer()
 
-@dp.callback_query(F.data.in_(['1month', '3months', '6months', 'forever']))
+@dp.callback_query(F.data.in_(['1month', 'forever']))
 async def process_tariff(callback: types.CallbackQuery):
     user_id = callback.from_user.id
     tariff_code = callback.data
