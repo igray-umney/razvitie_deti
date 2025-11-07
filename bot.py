@@ -29,7 +29,7 @@ DATABASE_URL = os.getenv('DATABASE_URL')  # PostgreSQL URL от Railway
 # Тарифы
 TARIFFS = {
     'trial': {'name': '7 дней бесплатно', 'days': 7, 'price': 0},
-    '1month': {'name': '1 месяц', 'days': 30, 'price': 99, 'old_price': 299},
+    '1month': {'name': '1 месяц', 'days': 30, 'price': 199, 'old_price': 499},
     'forever': {'name': 'Навсегда', 'days': 36500, 'price': 599, 'old_price': 2990}
 }
 
