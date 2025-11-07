@@ -761,14 +761,6 @@ def get_tariffs_menu():
             callback_data="1month"
         )],
         [InlineKeyboardButton(
-            text=f"🔥 3 месяца - {TARIFFS['3months']['price']}₽ (ПОПУЛЯРНЫЙ!) 🔥",  # 👈 ВЫДЕЛИЛИ
-            callback_data="3months"
-        )],
-        [InlineKeyboardButton(
-            text=f"6️⃣ 6 месяцев - {TARIFFS['6months']['price']}₽ (вместо {TARIFFS['6months']['old_price']}₽)",
-            callback_data="6months"
-        )],
-        [InlineKeyboardButton(
             text=f"♾️ НАВСЕГДА - {TARIFFS['forever']['price']}₽ 💎 ЛУЧШАЯ ЦЕНА",
             callback_data="forever"
         )],
