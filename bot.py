@@ -1037,19 +1037,6 @@ async def go_back(callback: types.CallbackQuery):
     )
     await callback.answer()
 
-@dp.callback_query(F.data == "show_tariffs")
-async def show_tariffs(callback: types.CallbackQuery):
-    """Показать список тарифов"""
-    await callback.message.edit_text(
-        "📋 **Выберите подходящую подписку:**\n\n"
-        "🔥 Специальные цены 5 дней!\n"
-        "Обычная цена → Цена со скидкой\n\n"
-        "💡 Чем дольше тариф - тем больше экономия!",
-        reply_markup=get_tariffs_menu(),
-        parse_mode="Markdown"
-    )
-    await callback.answer()
-
 @dp.callback_query(F.data == "faq")
 async def show_faq(callback: types.CallbackQuery):
     """Показать FAQ"""
