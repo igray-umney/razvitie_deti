@@ -757,11 +757,11 @@ def get_tariffs_menu():
     """Меню выбора тарифов с выделением популярного"""
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(
-            text=f"1️⃣ 1 месяц - {TARIFFS['1month']['price']}₽ (вместо {TARIFFS['1month']['old_price']}₽)",
+            text=f"1 месяц - {TARIFFS['1month']['price']}₽ (вместо {TARIFFS['1month']['old_price']}₽)",
             callback_data="1month"
         )],
         [InlineKeyboardButton(
-            text=f"♾️ НАВСЕГДА - {TARIFFS['forever']['price']}₽ 💎 ЛУЧШАЯ ЦЕНА",
+            text=f"НАВСЕГДА - {TARIFFS['forever']['price']}₽ ЛУЧШАЯ ЦЕНА",
             callback_data="forever"
         )],
         [InlineKeyboardButton(text="❓ Вопросы", callback_data="faq")],
