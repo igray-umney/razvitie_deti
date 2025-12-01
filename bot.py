@@ -769,6 +769,220 @@ def get_tariffs_menu():
     ])
     return keyboard
 
+# Добавить после импортов, перед командами
+from aiogram.fsm.state import State, StatesGroup
+
+class BroadcastStates(StatesGroup):
+    waiting_for_message = State()
+    confirm = State()
+
+# Добавить функцию для получения активных пользователей
+def get_active_subscribers():
+    """Получение всех пользователей с активной подпиской"""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    cur.execute('''SELECT user_id, username, subscription_until, tariff 
+                   FROM users 
+                   WHERE subscription_until > %s
+                   ORDER BY subscription_until DESC''',
+                (datetime.now(),))
+    
+    active_users = cur.fetchall()
+    cur.close()
+    conn.close()
+    return active_users
+
+# Команда для начала рассылки
+@dp.message(Command("broadcast"))
+async def cmd_broadcast(message: types.Message, state: FSMContext):
+    """Начать рассылку по активным подписчикам"""
+    if message.from_user.id != ADMIN_ID:
+        return
+    
+    # Получаем количество активных подписчиков
+    active_users = get_active_subscribers()
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Всем активным", callback_data="broadcast_active")],
+        [InlineKeyboardButton(text="🎁 Только Trial", callback_data="broadcast_trial")],
+        [InlineKeyboardButton(text="💳 Только платным", callback_data="broadcast_paid")],
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="broadcast_cancel")]
+    ])
+    
+    await message.answer(
+        f"📢 **СИСТЕМА РАССЫЛКИ**\n\n"
+        f"👥 Активных подписчиков: {len(active_users)}\n\n"
+        f"Выбери кому отправить:",
+        reply_markup=keyboard,
+        parse_mode="Markdown"
+    )
+    
+    await state.set_state(BroadcastStates.waiting_for_message)
+
+@dp.callback_query(F.data.startswith("broadcast_"))
+async def select_broadcast_type(callback: types.CallbackQuery, state: FSMContext):
+    """Выбор типа рассылки"""
+    if callback.from_user.id != ADMIN_ID:
+        await callback.answer("❌ Доступ запрещен!", show_alert=True)
+        return
+    
+    action = callback.data.replace("broadcast_", "")
+    
+    if action == "cancel":
+        await callback.message.edit_text("❌ Рассылка отменена")
+        await state.clear()
+        return
+    
+    # Сохраняем тип рассылки
+    await state.update_data(broadcast_type=action)
+    
+    await callback.message.edit_text(
+        "✍️ **Напиши текст сообщения для рассылки:**\n\n"
+        "Можешь использовать форматирование Markdown:\n"
+        "• `*жирный*` → **жирный**\n"
+        "• `_курсив_` → _курсив_\n"
+        "• `[ссылка](url)` → [ссылка](url)\n\n"
+        "💡 Для отмены отправь /cancel"
+    )
+    
+    await callback.answer()
+
+@dp.message(BroadcastStates.waiting_for_message)
+async def receive_broadcast_message(message: types.Message, state: FSMContext):
+    """Получение текста рассылки"""
+    if message.from_user.id != ADMIN_ID:
+        return
+    
+    if message.text == "/cancel":
+        await message.answer("❌ Рассылка отменена")
+        await state.clear()
+        return
+    
+    # Сохраняем текст
+    await state.update_data(message_text=message.text)
+    data = await state.get_data()
+    broadcast_type = data.get('broadcast_type', 'active')
+    
+    # Получаем список получателей
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    if broadcast_type == "active":
+        cur.execute('''SELECT COUNT(*) as count FROM users 
+                       WHERE subscription_until > %s''', (datetime.now(),))
+    elif broadcast_type == "trial":
+        cur.execute('''SELECT COUNT(*) as count FROM users 
+                       WHERE subscription_until > %s AND tariff = %s''', 
+                    (datetime.now(), 'trial'))
+    else:  # paid
+        cur.execute('''SELECT COUNT(*) as count FROM users 
+                       WHERE subscription_until > %s AND tariff != %s''', 
+                    (datetime.now(), 'trial'))
+    
+    count = cur.fetchone()['count']
+    cur.close()
+    conn.close()
+    
+    # Показываем превью
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Отправить", callback_data="confirm_broadcast")],
+        [InlineKeyboardButton(text="❌ Отменить", callback_data="cancel_broadcast")]
+    ])
+    
+    type_names = {
+        'active': 'Всем активным',
+        'trial': 'Trial пользователям',
+        'paid': 'Платным подписчикам'
+    }
+    
+    await message.answer(
+        f"📋 **ПРЕВЬЮ РАССЫЛКИ**\n\n"
+        f"👥 Получателей: {count}\n"
+        f"📢 Тип: {type_names.get(broadcast_type, 'Всем')}\n\n"
+        f"📝 **Текст сообщения:**\n"
+        f"{'─' * 30}\n"
+        f"{message.text}\n"
+        f"{'─' * 30}\n\n"
+        f"⚠️ Отправить рассылку?",
+        reply_markup=keyboard,
+        parse_mode="Markdown"
+    )
+    
+    await state.set_state(BroadcastStates.confirm)
+
+@dp.callback_query(F.data == "confirm_broadcast", BroadcastStates.confirm)
+async def execute_broadcast(callback: types.CallbackQuery, state: FSMContext):
+    """Выполнение рассылки"""
+    if callback.from_user.id != ADMIN_ID:
+        await callback.answer("❌ Доступ запрещен!", show_alert=True)
+        return
+    
+    data = await state.get_data()
+    message_text = data.get('message_text')
+    broadcast_type = data.get('broadcast_type', 'active')
+    
+    await callback.message.edit_text("⏳ Начинаю рассылку...")
+    
+    # Получаем пользователей
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    if broadcast_type == "active":
+        cur.execute('''SELECT user_id, username FROM users 
+                       WHERE subscription_until > %s''', (datetime.now(),))
+    elif broadcast_type == "trial":
+        cur.execute('''SELECT user_id, username FROM users 
+                       WHERE subscription_until > %s AND tariff = %s''', 
+                    (datetime.now(), 'trial'))
+    else:  # paid
+        cur.execute('''SELECT user_id, username FROM users 
+                       WHERE subscription_until > %s AND tariff != %s''', 
+                    (datetime.now(), 'trial'))
+    
+    users = cur.fetchall()
+    cur.close()
+    conn.close()
+    
+    # Статистика
+    sent = 0
+    blocked = 0
+    errors = 0
+    
+    # Отправка
+    for user in users:
+        try:
+            await bot.send_message(user['user_id'], message_text, parse_mode="Markdown")
+            sent += 1
+            await asyncio.sleep(0.05)  # Небольшая задержка между сообщениями
+        except Exception as e:
+            if "bot was blocked" in str(e) or "Forbidden" in str(e):
+                blocked += 1
+            else:
+                errors += 1
+                logging.error(f"Broadcast error for {user['user_id']}: {e}")
+    
+    # Итоговая статистика
+    await callback.message.answer(
+        f"✅ **РАССЫЛКА ЗАВЕРШЕНА**\n\n"
+        f"📊 Статистика:\n"
+        f"• Отправлено: {sent}\n"
+        f"• Заблокировали бота: {blocked}\n"
+        f"• Ошибки: {errors}\n"
+        f"• Всего получателей: {len(users)}\n\n"
+        f"📈 Успешность: {round(100 * sent / len(users), 1)}%"
+    )
+    
+    await state.clear()
+    await callback.answer()
+
+@dp.callback_query(F.data == "cancel_broadcast", BroadcastStates.confirm)
+async def cancel_broadcast(callback: types.CallbackQuery, state: FSMContext):
+    """Отмена рассылки"""
+    await callback.message.edit_text("❌ Рассылка отменена")
+    await state.clear()
+    await callback.answer()
+
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
     """Обработчик команды /start"""
