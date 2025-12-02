@@ -748,6 +748,10 @@ def get_main_menu():
             text="🎁 Попробовать 7 дней БЕСПЛАТНО", 
             url="https://t.me/tribute/app?startapp=sHr8"
         )],
+        [InlineKeyboardButton(
+            text="✅ Выбрать подписку", 
+            url="https://t.me/tribute/app?startapp=sHrc"
+        )],
         [InlineKeyboardButton(text="ℹ️ Мой статус", callback_data="status")],
         [InlineKeyboardButton(text="❓ Частые вопросы", callback_data="faq")]
     ])
