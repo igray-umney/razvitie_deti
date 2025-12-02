@@ -745,7 +745,7 @@ async def check_yookassa_payment(payment_id):
 def get_main_menu():
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(
-            text="🎁 Попробовать 7 дней - 150⭐", 
+            text="🎁 Попробовать 7 дней БЕСПЛАТНО", 
             url="https://t.me/tribute/app?startapp=sHr8"
         )],
         [InlineKeyboardButton(text="ℹ️ Мой статус", callback_data="status")],
