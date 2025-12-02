@@ -1261,11 +1261,10 @@ async def show_faq(callback: types.CallbackQuery):
     """Показать FAQ"""
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="1️⃣ Как продлить подписку?", callback_data="faq_1")],
-        [InlineKeyboardButton(text="2️⃣ Что делать если оплата не прошла?", callback_data="faq_2")],
-        [InlineKeyboardButton(text="3️⃣ Как узнать срок окончания подписки?", callback_data="faq_3")],
-        [InlineKeyboardButton(text="4️⃣ Можно ли вернуть деньги?", callback_data="faq_4")],
-        [InlineKeyboardButton(text="5️⃣ Что входит в подписку?", callback_data="faq_5")],
-        [InlineKeyboardButton(text="6️⃣ Как изменить тариф?", callback_data="faq_6")],
+        [InlineKeyboardButton(text="2️⃣ Как узнать срок окончания подписки?", callback_data="faq_3")],
+        [InlineKeyboardButton(text="3️⃣ Можно ли вернуть деньги?", callback_data="faq_4")],
+        [InlineKeyboardButton(text="4️⃣ Что входит в подписку?", callback_data="faq_5")],
+        [InlineKeyboardButton(text="5️⃣ Как изменить тариф?", callback_data="faq_6")],
         [InlineKeyboardButton(text="💬 Связаться с поддержкой", url="https://t.me/razvitie_dety")],
         [InlineKeyboardButton(text="◀️ Назад", callback_data="back")]
     ])
@@ -1298,49 +1297,17 @@ async def faq_answer_1(callback: types.CallbackQuery):
     await callback.answer()
 
 @dp.callback_query(F.data == "faq_2")
-async def faq_answer_2(callback: types.CallbackQuery):
+async def faq_answer_3(callback: types.CallbackQuery):
     """Ответ на вопрос 2"""
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔄 Попробовать снова", callback_data="back")],
-        [InlineKeyboardButton(text="💬 Связаться с поддержкой", url="https://t.me/razvitie_dety")],
-        [InlineKeyboardButton(text="◀️ К вопросам", callback_data="faq")]
-    ])
-    
-    await callback.message.edit_text(
-        "**2. Что делать, если оплата не прошла?**\n\n"
-        "Оплата может не пройти по следующим причинам:\n\n"
-        "💳 **Проблемы с картой:**\n"
-        "• Недостаточно средств на счёте\n"
-        "• Карта заблокирована или просрочена\n"
-        "• Превышен лимит по операциям\n\n"
-        "🏦 **Проблемы с банком:**\n"
-        "• Банк отклонил транзакцию\n"
-        "• Включены ограничения на онлайн-платежи\n"
-        "• Требуется подтверждение через SMS\n\n"
-        "**Что делать:**\n"
-        "1. Проверьте баланс карты\n"
-        "2. Убедитесь что карта не заблокирована\n"
-        "3. Попробуйте другую карту\n"
-        "4. Свяжитесь с банком для уточнения\n\n"
-        "Если проблема не решилась - напишите в поддержку @razvitie_dety",
-        reply_markup=keyboard,
-        parse_mode="Markdown"
-    )
-    await callback.answer()
-
-@dp.callback_query(F.data == "faq_3")
-async def faq_answer_3(callback: types.CallbackQuery):
-    """Ответ на вопрос 3"""
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="ℹ️ Проверить мой статус", callback_data="status")],
         [InlineKeyboardButton(text="◀️ К вопросам", callback_data="faq")]
     ])
     
     await callback.message.edit_text(
         "**3. Как узнать срок окончания подписки?**\n\n"
         "Чтобы проверить свою подписку:\n\n"
-        "1️⃣ Введите команду /start\n"
-        "2️⃣ Нажмите кнопку **'ℹ️ Мой статус'**\n\n"
+        "1️⃣ Перейдите в @tribute"
+        "2️⃣ Нажмите кнопку **'Управление подпиской'**\n\n"
         "Вы увидите:\n"
         "• Текущий тариф\n"
         "• Дату окончания подписки\n"
@@ -1351,9 +1318,9 @@ async def faq_answer_3(callback: types.CallbackQuery):
     )
     await callback.answer()
 
-@dp.callback_query(F.data == "faq_4")
+@dp.callback_query(F.data == "faq_3")
 async def faq_answer_4(callback: types.CallbackQuery):
-    """Ответ на вопрос 4"""
+    """Ответ на вопрос 3"""
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="💬 Связаться с поддержкой", url="https://t.me/razvitie_dety")],
         [InlineKeyboardButton(text="◀️ К вопросам", callback_data="faq")]
