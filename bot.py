@@ -1350,7 +1350,6 @@ async def faq_answer_5(callback: types.CallbackQuery):
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🎥 Видео: Обзор материалов", url="https://t.me/instrukcii_baza/32")],
         [InlineKeyboardButton(text="🎥 Видео: Как пользоваться", url="https://t.me/instrukcii_baza/34")],
-        [InlineKeyboardButton(text="🎁 Попробовать бесплатно", callback_data="trial")],
         [InlineKeyboardButton(text="◀️ К вопросам", callback_data="faq")]
     ])
     
