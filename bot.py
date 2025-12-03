@@ -1,6 +1,3 @@
-# В начале bot.py
-YOOKASSA_PROVIDER_TOKEN = os.getenv('YOOKASSA_PROVIDER_TOKEN', '390540012:LIVE:83850')
-
 import os
 import logging
 from datetime import datetime, timedelta
@@ -9,14 +6,11 @@ from aiogram.filters import Command
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 import asyncio
-import aiohttp
-import uuid
-import base64
 import psycopg2
 from psycopg2.extras import RealDictCursor
 
 from aiogram.fsm.context import FSMContext
-from aiogram.filters import StateFilter
+from aiogram.fsm.state import State, StatesGroup
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO)
@@ -24,15 +18,16 @@ logging.basicConfig(level=logging.INFO)
 # Конфигурация из переменных окружения
 BOT_TOKEN = os.getenv('BOT_TOKEN')
 CHANNEL_ID = os.getenv('CHANNEL_ID')
-YOOKASSA_SHOP_ID = os.getenv('YOOKASSA_SHOP_ID')
-YOOKASSA_SECRET_KEY = os.getenv('YOOKASSA_SECRET_KEY')
 ADMIN_ID = int(os.getenv('ADMIN_ID', 0))
 DATABASE_URL = os.getenv('DATABASE_URL')
 
-# 🆕 НОВОЕ: Ссылки на демо-контент (ЗАМЕНИ НА СВОИ!)
-DEMO_VIDEO_URL = "https://t.me/instrukcii_baza"  # Видео-обзор материалов
-DEMO_PHOTOS_URL = "https://t.me/instrukcii_baza"  # Канал с примерами
-REVIEWS_URL = "https://t.me/otzovik_klub"  # Канал с отзывами
+# 🆕 TELEGRAM PAYMENTS - Provider Token от BotFather
+YOOKASSA_PROVIDER_TOKEN = os.getenv('YOOKASSA_PROVIDER_TOKEN', '390540012:LIVE:83850')
+
+# 🆕 Ссылки на демо-контент
+DEMO_VIDEO_URL = "https://t.me/instrukcii_baza"
+DEMO_PHOTOS_URL = "https://t.me/instrukcii_baza"
+REVIEWS_URL = "https://t.me/otzovik_klub"
 
 # Тарифы
 TARIFFS = {
@@ -49,7 +44,10 @@ dp = Dispatcher(storage=storage)
 # Импорт системы обратной связи
 import feedback_broadcast
 
-# База данных PostgreSQL
+# ========================================
+# ФУНКЦИИ БАЗЫ ДАННЫХ
+# ========================================
+
 def get_db_connection():
     """Создает подключение к PostgreSQL"""
     return psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
@@ -91,7 +89,6 @@ def init_db():
                   sent_at TIMESTAMP,
                   opened BOOLEAN DEFAULT FALSE)''')
     
-    # 🆕 НОВАЯ ТАБЛИЦА: Аналитика воронки прогрева
     cur.execute('''CREATE TABLE IF NOT EXISTS funnel_analytics
                  (id SERIAL PRIMARY KEY,
                   user_id BIGINT,
@@ -102,7 +99,6 @@ def init_db():
     cur.close()
     conn.close()
 
-# 🆕 НОВАЯ ФУНКЦИЯ: Отслеживание действий пользователя
 def track_user_action(user_id, action):
     """Сохраняем действия пользователя для аналитики"""
     try:
@@ -152,43 +148,6 @@ def is_subscription_active(user_id):
     if not user:
         return False
     return datetime.now() < user['subscription_until']
-
-def create_payment(user_id, amount, tariff, yookassa_id):
-    """Создание записи о платеже"""
-    conn = get_db_connection()
-    cur = conn.cursor()
-    payment_id = f"{user_id}_{int(datetime.now().timestamp())}"
-    created_at = datetime.now()
-    
-    cur.execute('''INSERT INTO payments 
-                 (payment_id, user_id, amount, tariff, status, yookassa_id, created_at)
-                 VALUES (%s, %s, %s, %s, %s, %s, %s)''',
-              (payment_id, user_id, amount, tariff, 'pending', yookassa_id, created_at))
-    
-    conn.commit()
-    cur.close()
-    conn.close()
-    return payment_id
-
-def update_payment_status(yookassa_id, status):
-    """Обновление статуса платежа"""
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute('UPDATE payments SET status = %s WHERE yookassa_id = %s', 
-                (status, yookassa_id))
-    conn.commit()
-    cur.close()
-    conn.close()
-
-def get_payment_by_yookassa_id(yookassa_id):
-    """Получение платежа по ID ЮКассы"""
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute('SELECT * FROM payments WHERE yookassa_id = %s', (yookassa_id,))
-    payment = cur.fetchone()
-    cur.close()
-    conn.close()
-    return payment
 
 def get_expired_users():
     """Получение пользователей с истекшей подпиской"""
@@ -247,22 +206,6 @@ def get_trial_users_for_funnel():
     conn.close()
     return trial_users
 
-def get_expired_users_for_funnel():
-    """Получение пользователей с ИСТЕКШЕЙ подпиской для воронки"""
-    conn = get_db_connection()
-    cur = conn.cursor()
-    
-    cur.execute('''SELECT user_id, username, subscription_until, created_at 
-                   FROM users 
-                   WHERE tariff = %s 
-                   AND subscription_until < %s''',
-                ('trial', datetime.now()))
-    
-    expired_users = cur.fetchall()
-    cur.close()
-    conn.close()
-    return expired_users
-
 def get_expired_trial_users():
     """Получение пользователей с истекшим пробным периодом"""
     conn = get_db_connection()
@@ -308,6 +251,22 @@ def mark_funnel_message_sent(user_id, message_type):
     cur.close()
     conn.close()
 
+def get_active_subscribers():
+    """Получение всех пользователей с активной подпиской"""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    cur.execute('''SELECT user_id, username, subscription_until, tariff 
+                   FROM users 
+                   WHERE subscription_until > %s
+                   ORDER BY subscription_until DESC''',
+                (datetime.now(),))
+    
+    active_users = cur.fetchall()
+    cur.close()
+    conn.close()
+    return active_users
+
 async def send_safe_funnel_message(user_id, text, reply_markup=None, parse_mode="Markdown"):
     """Безопасная отправка сообщений воронки с обработкой блокировки"""
     try:
@@ -322,7 +281,217 @@ async def send_safe_funnel_message(user_id, text, reply_markup=None, parse_mode=
             return False
 
 # ========================================
-# 🆕 ОБНОВЛЕННАЯ ВОРОНКА ПРОДАЖ
+# 🆕 TELEGRAM PAYMENTS - ФУНКЦИИ
+# ========================================
+
+async def send_invoice(user_id, tariff_code):
+    """Отправка счета на оплату через Telegram Payments"""
+    tariff = TARIFFS[tariff_code]
+    
+    # Уникальный payload для отслеживания платежа
+    payload = f"{user_id}_{tariff_code}_{int(datetime.now().timestamp())}"
+    
+    # Цена в копейках (199₽ = 19900 копеек)
+    price = types.LabeledPrice(
+        label="К оплате",
+        amount=int(tariff['price'] * 100)  # Цена в копейках!
+    )
+    
+    try:
+        await bot.send_invoice(
+            chat_id=user_id,
+            title=f"Подписка: {tariff['name']}",
+            description=f"Доступ к развивающим материалам для детей.\n"
+                       f"Полная цена: {tariff['old_price']}₽\n"
+                       f"Со скидкой: {tariff['price']}₽",
+            payload=payload,
+            provider_token=YOOKASSA_PROVIDER_TOKEN,
+            currency="RUB",
+            prices=[price],
+            start_parameter="subscription",
+            need_name=False,
+            need_phone_number=False,
+            need_email=False,
+            need_shipping_address=False,
+            is_flexible=False
+        )
+        
+        # Сохраняем в БД
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute('''INSERT INTO payments 
+                     (payment_id, user_id, amount, tariff, status, yookassa_id, created_at)
+                     VALUES (%s, %s, %s, %s, %s, %s, %s)''',
+                  (payload, user_id, tariff['price'], tariff_code, 'pending', payload, datetime.now()))
+        conn.commit()
+        cur.close()
+        conn.close()
+        
+        logging.info(f"Invoice sent to user {user_id} for tariff {tariff_code}")
+        return True
+        
+    except Exception as e:
+        logging.error(f"Error sending invoice: {e}")
+        return False
+
+# ========================================
+# 🆕 TELEGRAM PAYMENTS - ОБРАБОТЧИКИ
+# ========================================
+
+@dp.pre_checkout_query()
+async def process_pre_checkout_query(pre_checkout_query: types.PreCheckoutQuery):
+    """Обработка pre-checkout query - ОБЯЗАТЕЛЬНО ответить в течение 10 секунд!"""
+    try:
+        await bot.answer_pre_checkout_query(
+            pre_checkout_query.id,
+            ok=True
+        )
+        logging.info(f"Pre-checkout approved for user {pre_checkout_query.from_user.id}")
+        
+    except Exception as e:
+        logging.error(f"Error in pre-checkout: {e}")
+        await bot.answer_pre_checkout_query(
+            pre_checkout_query.id,
+            ok=False,
+            error_message="Произошла ошибка. Попробуйте позже."
+        )
+
+@dp.message(F.successful_payment)
+async def process_successful_payment(message: types.Message):
+    """Обработка успешного платежа"""
+    try:
+        payment_info = message.successful_payment
+        
+        # Получаем данные
+        user_id = message.from_user.id
+        username = message.from_user.username or "unknown"
+        payload = payment_info.invoice_payload
+        provider_payment_charge_id = payment_info.provider_payment_charge_id  # ID в ЮKassa
+        total_amount = payment_info.total_amount / 100  # Из копеек в рубли
+        
+        # Парсим payload чтобы получить tariff_code
+        parts = payload.split('_')
+        tariff_code = parts[1] if len(parts) > 1 else '1month'
+        
+        tariff = TARIFFS.get(tariff_code)
+        
+        if not tariff:
+            logging.error(f"Unknown tariff: {tariff_code}")
+            await message.answer("❌ Ошибка определения тарифа. Обратитесь к администратору.")
+            return
+        
+        # Обновляем статус платежа в БД
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute('''UPDATE payments 
+                       SET status = %s, yookassa_id = %s 
+                       WHERE payment_id = %s''',
+                   ('completed', provider_payment_charge_id, payload))
+        conn.commit()
+        cur.close()
+        conn.close()
+        
+        # Активируем подписку
+        add_user(user_id, username, tariff['days'], tariff_code)
+        track_user_action(user_id, f'completed_payment_{tariff_code}')
+        
+        # Создаем инвайт-ссылку
+        try:
+            if tariff_code == 'forever':
+                invite_link = await bot.create_chat_invite_link(
+                    CHANNEL_ID,
+                    member_limit=1
+                )
+            else:
+                invite_link = await bot.create_chat_invite_link(
+                    CHANNEL_ID,
+                    member_limit=1,
+                    expire_date=datetime.now() + timedelta(days=tariff['days'])
+                )
+            
+            # Отправляем подтверждение
+            await message.answer(
+                f"✅ **Оплата прошла успешно!**\n\n"
+                f"🎉 Поздравляем! Вы получили доступ.\n"
+                f"📅 Тариф: {tariff['name']}\n"
+                f"💰 Оплачено: {total_amount}₽\n\n"
+                f"🔗 **Переходите в группу:**\n{invite_link.invite_link}\n\n"
+                f"💡 Сохраните эту ссылку!",
+                reply_markup=get_main_menu(),
+                parse_mode="Markdown"
+            )
+            
+            # Уведомляем админа
+            if ADMIN_ID:
+                await bot.send_message(
+                    ADMIN_ID,
+                    f"💰 **НОВАЯ ОПЛАТА!**\n\n"
+                    f"👤 User: @{username} (ID: {user_id})\n"
+                    f"📦 Тариф: {tariff['name']}\n"
+                    f"💵 Сумма: {total_amount}₽\n"
+                    f"🆔 ЮKassa ID: {provider_payment_charge_id}",
+                    parse_mode="Markdown"
+                )
+            
+            logging.info(f"Payment successful: user {user_id}, tariff {tariff_code}, amount {total_amount}")
+            
+        except Exception as e:
+            logging.error(f"Error creating invite after payment: {e}")
+            await message.answer(
+                "✅ Оплата получена!\n"
+                "❌ Ошибка создания приглашения.\n"
+                "Обратитесь к администратору @razvitie_dety",
+                reply_markup=get_main_menu()
+            )
+    
+    except Exception as e:
+        logging.error(f"Error processing successful payment: {e}")
+        await message.answer(
+            "⚠️ Платёж получен, но возникла ошибка.\n"
+            "Обратитесь к администратору @razvitie_dety"
+        )
+
+# ========================================
+# КЛАВИАТУРЫ
+# ========================================
+
+def get_main_menu():
+    """Главное меню для СУЩЕСТВУЮЩИХ пользователей"""
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💳 Выбрать подписку", callback_data="show_tariffs")],
+        [InlineKeyboardButton(text="ℹ️ Мой статус", callback_data="status")],
+        [InlineKeyboardButton(text="❓ Частые вопросы", callback_data="faq")]
+    ])
+    return keyboard
+
+def get_new_user_menu():
+    """🆕 Меню для НОВЫХ пользователей (с прогревом)"""
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🎥 Посмотреть примеры материалов", callback_data="show_demo")],
+        [InlineKeyboardButton(text="💬 Отзывы родителей", callback_data="show_reviews")],
+        [InlineKeyboardButton(text="💰 Что входит в подписку?", callback_data="faq_5")],
+        [InlineKeyboardButton(text="🎁 Попробовать 7 дней БЕСПЛАТНО", callback_data="ready_for_trial")]
+    ])
+    return keyboard
+
+def get_tariffs_menu():
+    """Меню выбора тарифов"""
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(
+            text=f"💎 1 месяц - {TARIFFS['1month']['price']}₽",
+            callback_data="1month"
+        )],
+        [InlineKeyboardButton(
+            text=f"🔥 НАВСЕГДА - {TARIFFS['forever']['price']}₽ (ЛУЧШАЯ ЦЕНА)",
+            callback_data="forever"
+        )],
+        [InlineKeyboardButton(text="❓ Вопросы", callback_data="faq")],
+        [InlineKeyboardButton(text="◀️ Назад", callback_data="back")]
+    ])
+    return keyboard
+
+# ========================================
+# ВОРОНКА ПРОДАЖ
 # ========================================
 
 async def sales_funnel():
@@ -344,7 +513,7 @@ async def sales_funnel():
                 hours_until_end = (subscription_until - datetime.now()).total_seconds() / 3600
                 
                 try:
-                    # 🆕 ДЕНЬ 1 (20-28 часов) - ПРОВЕРКА ОПЫТА
+                    # ДЕНЬ 1 (20-28 часов) - ПРОВЕРКА ОПЫТА
                     if 20 <= hours_since_registration < 28:
                         if not get_funnel_message_sent(user_id, 'day1'):
                             keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -439,8 +608,8 @@ async def sales_funnel():
                                 "Завтра доступ к материалам закроется...\n\n"
                                 "🎁 Но у вас еще есть время оформить подписку со **СКИДКОЙ**:\n\n"
                                 "💰 **Специальные цены (только для пробников):**\n"
-                                "• 1 месяц: ~~499₽~~ → **199₽** (экономия 300₽)\n"
-                                "• Навсегда: ~~2990₽~~ → **599₽** (экономия 2391₽!)\n\n"
+                                "• 1 месяц: 199₽ (экономия 300₽)\n"
+                                "• Навсегда: 599₽ (экономия 2391₽!)\n\n"
                                 "⚠️ После окончания пробного периода эти цены **исчезнут навсегда**!\n\n"
                                 "💡 P.S. Не теряйте то, что уже начали строить вместе с ребенком 💚",
                                 reply_markup=keyboard
@@ -478,7 +647,7 @@ async def sales_funnel():
                 except Exception as e:
                     logging.error(f"Error sending funnel message to {user_id}: {e}")
             
-            # ========== ОБРАБОТКА ИСТЕКШИХ ПОЛЬЗОВАТЕЛЕЙ ==========
+            # ОБРАБОТКА ИСТЕКШИХ ПОЛЬЗОВАТЕЛЕЙ
             expired_users = get_expired_trial_users()
             
             for user in expired_users:
@@ -624,76 +793,621 @@ async def check_and_remove_expired():
             logging.error(f"Error in check_and_remove_expired: {e}")
             await asyncio.sleep(3600)
 
+async def send_welcome_messages():
+    """Фоновая задача: отправка приветственных сообщений через 5-10 минут после регистрации"""
+    logging.info("Welcome messages task started!")
+    
+    while True:
+        try:
+            await asyncio.sleep(60)
+            
+            conn = get_db_connection()
+            cur = conn.cursor()
+            
+            cur.execute("""
+                SELECT u.user_id, u.username
+                FROM users u
+                LEFT JOIN welcome_messages wm ON u.user_id = wm.user_id
+                WHERE u.created_at >= NOW() - INTERVAL '10 minutes'
+                  AND u.created_at <= NOW() - INTERVAL '5 minutes'
+                  AND wm.user_id IS NULL
+                  AND u.tariff IS NULL
+            """)
+            
+            users = cur.fetchall()
+            cur.close()
+            conn.close()
+            
+            for user in users:
+                user_id = user['user_id']
+                
+                try:
+                    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text="🎥 Посмотреть примеры", callback_data="show_demo")],
+                        [InlineKeyboardButton(text="💬 Отзывы родителей", callback_data="show_reviews")],
+                        [InlineKeyboardButton(text="🎁 Начать пробный период", callback_data="ready_for_trial")]
+                    ])
+                    
+                    await bot.send_message(
+                        user_id,
+                        "👋 Я вижу ты заинтересовался нашим клубом!\n\n"
+                        "**Не торопись активировать trial** 😊\n\n"
+                        "Сначала посмотри:\n"
+                        "🎥 Видео с примерами материалов\n"
+                        "💬 Отзывы других родителей\n"
+                        "📚 Как это работает\n\n"
+                        "А **потом решишь** - подходит тебе или нет!\n\n"
+                        "💡 87% родителей после просмотра сразу начинают trial 🔥\n\n"
+                        "Что хочешь посмотреть первым?",
+                        reply_markup=keyboard,
+                        parse_mode="Markdown"
+                    )
+                    
+                    conn2 = get_db_connection()
+                    cur2 = conn2.cursor()
+                    cur2.execute("""
+                        INSERT INTO welcome_messages (user_id, sent_at)
+                        VALUES (%s, NOW())
+                        ON CONFLICT (user_id) DO NOTHING
+                    """, (user_id,))
+                    conn2.commit()
+                    cur2.close()
+                    conn2.close()
+                    
+                    track_user_action(user_id, 'received_welcome_message')
+                    logging.info(f"Welcome message sent to user {user_id}")
+                    
+                    await asyncio.sleep(0.1)
+                    
+                except Exception as e:
+                    logging.error(f"Error sending welcome to {user_id}: {e}")
+            
+        except Exception as e:
+            logging.error(f"Error in send_welcome_messages: {e}")
+            await asyncio.sleep(60)
+
 # ========================================
-# 🆕 НОВЫЕ КЛАВИАТУРЫ С ПРОГРЕВОМ
+# КОМАНДЫ И ОБРАБОТЧИКИ
 # ========================================
-
-def get_main_menu():
-    """Главное меню для СУЩЕСТВУЮЩИХ пользователей"""
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(
-            text="🎁 Попробовать 7 дней БЕСПЛАТНО", 
-            url="https://t.me/tribute/app?startapp=sHr8"
-        )],
-        [InlineKeyboardButton(
-            text="💳 Выбрать подписку", 
-            url="https://t.me/tribute/app?startapp=sHrc"
-        )],
-        [InlineKeyboardButton(text="❓ Частые вопросы", callback_data="faq")]
-    ])
-    return keyboard
-
-def get_new_user_menu():
-    """🆕 Меню для НОВЫХ пользователей (с прогревом)"""
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🎥 Посмотреть примеры материалов", callback_data="show_demo")],
-        [InlineKeyboardButton(text="💬 Отзывы родителей", callback_data="show_reviews")],
-        [InlineKeyboardButton(text="💰 Что входит в подписку?", callback_data="faq_5")],
-        [InlineKeyboardButton(text="🎁 Попробовать 7 дней БЕСПЛАТНО", callback_data="ready_for_trial")]
-    ])
-    return keyboard
-
-def get_tariffs_menu():
-    """Меню выбора тарифов"""
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(
-            text=f"💎 1 месяц - {TARIFFS['1month']['price']}₽",
-            callback_data="1month"
-        )],
-        [InlineKeyboardButton(
-            text=f"🔥 НАВСЕГДА - {TARIFFS['forever']['price']}₽ (ЛУЧШАЯ ЦЕНА)",
-            callback_data="forever"
-        )],
-        [InlineKeyboardButton(text="❓ Вопросы", callback_data="faq")],
-        [InlineKeyboardButton(text="◀️ Назад", callback_data="back")]
-    ])
-    return keyboard
-
-# ========================================
-# 🆕 НОВЫЕ ОБРАБОТЧИКИ КОМАНД
-# ========================================
-
-from aiogram.fsm.state import State, StatesGroup
 
 class BroadcastStates(StatesGroup):
     waiting_for_message = State()
     confirm = State()
 
-def get_active_subscribers():
-    """Получение всех пользователей с активной подпиской"""
-    conn = get_db_connection()
-    cur = conn.cursor()
+@dp.message(Command("start"))
+async def cmd_start(message: types.Message):
+    """Обработчик команды /start с воронкой прогрева"""
+    user_id = message.from_user.id
+    username = message.from_user.username
     
-    cur.execute('''SELECT user_id, username, subscription_until, tariff 
-                   FROM users 
-                   WHERE subscription_until > %s
-                   ORDER BY subscription_until DESC''',
-                (datetime.now(),))
+    user = get_user(user_id)
     
-    active_users = cur.fetchall()
-    cur.close()
-    conn.close()
-    return active_users
+    if not user:
+        # НОВЫЙ пользователь - показываем ВОРОНКУ ПРОГРЕВА
+        track_user_action(user_id, 'started_bot')
+        
+        await message.answer(
+            f"👋 Привет, {message.from_user.first_name}!\n\n"
+            "Добро пожаловать в клуб развивающих материалов для детей!\n\n"
+            "🎯 **Что у нас есть:**\n"
+            "• 1000+ готовых занятий и игр\n"
+            "• Материалы обновляются каждую неделю\n"
+            "• Всё разделено по возрастам и навыкам\n"
+            "• 87% родителей продлевают подписку после пробного периода\n\n"
+            "💡 **Сначала посмотри примеры - потом решишь попробовать!**\n\n"
+            "👇 Что хочешь узнать первым?",
+            reply_markup=get_new_user_menu(),
+            parse_mode="Markdown"
+        )
+    else:
+        # Существующий пользователь
+        if is_subscription_active(user_id):
+            await message.answer(
+                f"👋 С возвращением, {message.from_user.first_name}!\n\n"
+                "Твоя подписка активна! 🎉",
+                reply_markup=get_main_menu()
+            )
+        else:
+            await message.answer(
+                f"👋 Привет, {message.from_user.first_name}!\n\n"
+                "Твоя подписка истекла 😔\n\n"
+                "Продли подписку чтобы продолжить пользоваться материалами!",
+                reply_markup=get_main_menu()
+            )
+
+@dp.callback_query(F.data == "show_demo")
+async def show_demo_content(callback: types.CallbackQuery):
+    """Показать примеры материалов ПЕРЕД активацией trial"""
+    track_user_action(callback.from_user.id, 'viewed_demo')
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🎥 Видео-обзор материалов", url=DEMO_VIDEO_URL)],
+        [InlineKeyboardButton(text="🎨 Примеры заданий", url=DEMO_PHOTOS_URL)],
+        [InlineKeyboardButton(text="📚 Как это работает?", callback_data="how_it_works")],
+        [InlineKeyboardButton(text="🔥 Хочу попробовать!", callback_data="ready_for_trial")],
+        [InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_start")]
+    ])
+    
+    await callback.message.edit_text(
+        "🎨 **ПРИМЕРЫ НАШИХ МАТЕРИАЛОВ:**\n\n"
+        "Посмотри что получают родители внутри клуба:\n\n"
+        "🎯 **Для детей 3-5 лет:**\n"
+        "• Игры на развитие внимания и памяти\n"
+        "• Подготовка руки к письму\n"
+        "• Изучение цветов, форм, размеров\n"
+        "• Развитие речи через игру\n\n"
+        "🎯 **Для детей 5-7 лет:**\n"
+        "• Обучение чтению по слогам\n"
+        "• Математика в игровой форме\n"
+        "• Логические задачки\n"
+        "• Подготовка к школе\n\n"
+        "📹 **Смотри видео** - там показаны реальные материалы!\n\n"
+        "💡 Всё это доступно в закрытой группе 24/7",
+        reply_markup=keyboard,
+        parse_mode="Markdown"
+    )
+    await callback.answer()
+
+@dp.callback_query(F.data == "show_reviews")
+async def show_reviews(callback: types.CallbackQuery):
+    """Показать РЕАЛЬНЫЕ отзывы родителей"""
+    track_user_action(callback.from_user.id, 'viewed_reviews')
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📸 Больше отзывов в канале", url=REVIEWS_URL)],
+        [InlineKeyboardButton(text="🔥 Убедили! Хочу попробовать", callback_data="ready_for_trial")],
+        [InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_start")]
+    ])
+    
+    await callback.message.edit_text(
+        "💬 **ЧТО ГОВОРЯТ РОДИТЕЛИ:**\n\n"
+        "**Анна, 2 ребенка (4 и 6 лет):**\n"
+        "_\"За неделю дочка выучила 10 букв! Занимаемся по 15 минут утром. "
+        "Материалы яркие, ребенок сам просит позаниматься!\"_\n\n"
+        "**Олег, сын 5 лет:**\n"
+        "_\"Раньше тратил 2-3 часа на поиск заданий в интернете. "
+        "Теперь всё в одном месте. Окупилось за первую неделю!\"_\n\n"
+        "**Мария, дочка 3 года:**\n"
+        "_\"Попробовали trial - не смогли остановиться. "
+        "Оформили Навсегда со скидкой. Лучшее вложение в ребенка!\"_\n\n"
+        "📊 **Наши цифры:**\n"
+        "• 87% родителей продлевают после trial\n"
+        "• 1000+ активных семей\n"
+        "• 5000+ материалов в базе\n"
+        "• 4.9/5 средняя оценка\n\n"
+        "🎁 Попробуй сам - первые 7 дней бесплатно!",
+        reply_markup=keyboard,
+        parse_mode="Markdown"
+    )
+    await callback.answer()
+
+@dp.callback_query(F.data == "ready_for_trial")
+async def ready_for_trial(callback: types.CallbackQuery):
+    """Пользователь ГОТОВ активировать trial - объясняем процесс"""
+    track_user_action(callback.from_user.id, 'clicked_ready_for_trial')
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Активировать Trial", callback_data="trial")],
+        [InlineKeyboardButton(text="❓ У меня вопросы", callback_data="faq")],
+        [InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_start")]
+    ])
+    
+    await callback.message.edit_text(
+        "🎁 **КАК ПОЛУЧИТЬ БЕСПЛАТНЫЙ ДОСТУП:**\n\n"
+        "**Шаг 1:** Нажми кнопку \"Активировать Trial\"\n"
+        "🎫 Получишь МГНОВЕННЫЙ доступ на 7 дней\n\n"
+        "**Шаг 2:** Перейди по ссылке в группу\n"
+        "🔗 Начинай заниматься с ребёнком!\n\n"
+        "⏰ **ВАЖНО:**\n"
+        "• Первые 7 дней - **полностью БЕСПЛАТНО**\n"
+        "• Никаких платежей и карт\n"
+        "• Отменить можно в любой момент\n\n"
+        "🎯 **После trial (если понравится):**\n"
+        "Сможешь продлить со **скидкой 60-80%**:\n"
+        "• 1 месяц: 199₽ (вместо 499₽)\n"
+        "• Навсегда: 599₽ (вместо 2990₽)\n\n"
+        "💡 **Попробуй без риска - тебе понравится!**",
+        reply_markup=keyboard,
+        parse_mode="Markdown"
+    )
+    await callback.answer()
+
+@dp.callback_query(F.data == "back_to_start")
+async def back_to_start(callback: types.CallbackQuery):
+    """Вернуться к начальному меню"""
+    await callback.message.edit_text(
+        f"👋 Привет, {callback.from_user.first_name}!\n\n"
+        "Добро пожаловать в клуб развивающих материалов для детей!\n\n"
+        "🎯 **Что у нас есть:**\n"
+        "• 1000+ готовых занятий и игр\n"
+        "• Материалы обновляются каждую неделю\n"
+        "• Всё разделено по возрастам и навыкам\n"
+        "• 87% родителей продлевают подписку\n\n"
+        "💡 **Сначала посмотри примеры - потом решишь!**\n\n"
+        "👇 Что хочешь узнать первым?",
+        reply_markup=get_new_user_menu(),
+        parse_mode="Markdown"
+    )
+    await callback.answer()
+
+@dp.callback_query(F.data == "trial")
+async def process_trial(callback: types.CallbackQuery):
+    """Обработчик кнопки 'Попробовать бесплатно'"""
+    user_id = callback.from_user.id
+    username = callback.from_user.username
+    
+    user = get_user(user_id)
+    
+    if user:
+        await callback.answer(
+            "Вы уже использовали пробный период! 😊",
+            show_alert=True
+        )
+        return
+    
+    add_user(user_id, username, TARIFFS['trial']['days'], 'trial')
+    track_user_action(user_id, 'activated_trial')
+    
+    try:
+        invite_link = await bot.create_chat_invite_link(
+            CHANNEL_ID,
+            member_limit=1,
+            expire_date=datetime.now() + timedelta(days=TARIFFS['trial']['days'])
+        )
+        
+        await callback.message.edit_text(
+            f"🎉 **Поздравляем!**\n\n"
+            f"Вам активирован пробный период на {TARIFFS['trial']['days']} дней!\n\n"
+            f"**ВАЖНО: Сохрани эту ссылку!**\n\n"
+            f"Переходи по ссылке: {invite_link.invite_link}\n\n"
+            f"⏰ Доступ истечет через {TARIFFS['trial']['days']} дней.\n"
+            f"После этого выбери подходящий тариф!\n\n"
+            f"💡 Это ссылка для присоединения к закрытой группе.",
+            parse_mode="HTML"
+        )
+        
+        await callback.answer()
+        
+    except Exception as e:
+        logging.error(f"Error adding user to channel: {e}")
+        await callback.message.edit_text(
+            "❌ Произошла ошибка. Обратитесь к администратору.",
+            reply_markup=get_main_menu()
+        )
+    
+    await callback.answer()
+
+@dp.callback_query(F.data == "show_tariffs")
+async def show_tariffs(callback: types.CallbackQuery):
+    """Показать список тарифов"""
+    track_user_action(callback.from_user.id, 'viewed_tariffs')
+    
+    await callback.message.edit_text(
+        "📋 **Выберите подходящую подписку:**\n\n"
+        "💎 **1 месяц - 199₽**\n"
+        "~~499₽~~ → Скидка 60%!\n"
+        "• Идеально чтобы протестировать\n"
+        "• Самый популярный выбор\n\n"
+        "🔥 **НАВСЕГДА - 599₽**\n"
+        "~~2990₽~~ → Скидка 80%!\n"
+        "• Разовый платеж - больше не платишь\n"
+        "• Лучшая цена!\n"
+        "• Доступ без ограничений\n\n"
+        "⚡️ **Специальные цены только для вас!**",
+        reply_markup=get_tariffs_menu(),
+        parse_mode="Markdown"
+    )
+    await callback.answer()
+
+@dp.callback_query(F.data.in_(['1month', 'forever']))
+async def process_tariff(callback: types.CallbackQuery):
+    """🆕 Обработка выбора тарифа - TELEGRAM PAYMENTS"""
+    user_id = callback.from_user.id
+    tariff_code = callback.data
+    tariff = TARIFFS[tariff_code]
+    
+    track_user_action(user_id, f'selected_tariff_{tariff_code}')
+    
+    await callback.answer("⏳ Отправляю счёт на оплату...", show_alert=False)
+    
+    # 🆕 Отправляем счет через Telegram Payments
+    success = await send_invoice(user_id, tariff_code)
+    
+    if success:
+        await callback.message.answer(
+            f"📋 **Счёт на оплату отправлен!**\n\n"
+            f"📦 Тариф: {tariff['name']}\n"
+            f"💰 К оплате: **{tariff['price']}₽**\n\n"
+            f"👆 Нажмите на счёт выше для оплаты\n\n"
+            f"💳 Принимаем все российские карты 🇷🇺\n\n"
+            f"✅ После оплаты доступ откроется **АВТОМАТИЧЕСКИ**!",
+            parse_mode="Markdown"
+        )
+    else:
+        await callback.message.answer(
+            "❌ Ошибка создания счёта. Попробуйте позже.",
+            reply_markup=get_main_menu()
+        )
+
+@dp.callback_query(F.data == "status")
+async def check_status(callback: types.CallbackQuery):
+    user_id = callback.from_user.id
+    user = get_user(user_id)
+    
+    if not user:
+        await callback.answer(
+            "❌ У вас нет активной подписки. Попробуйте бесплатно!",
+            show_alert=True
+        )
+        return
+    
+    subscription_until = user['subscription_until']
+    is_active = datetime.now() < subscription_until
+    
+    if is_active:
+        days_left = (subscription_until - datetime.now()).days
+        tariff_info = TARIFFS.get(user['tariff'], {})
+        
+        if user['tariff'] == 'forever':
+            status_text = (
+                f"✅ **Ваша подписка активна!**\n\n"
+                f"📅 Тариф: {tariff_info.get('name', 'Неизвестно')}\n"
+                f"♾️ Бессрочная подписка"
+            )
+        else:
+            status_text = (
+                f"✅ **Ваша подписка активна!**\n\n"
+                f"📅 Тариф: {tariff_info.get('name', 'Неизвестно')}\n"
+                f"⏰ Осталось дней: {days_left}\n"
+                f"📆 Действует до: {subscription_until.strftime('%d.%m.%Y')}"
+            )
+    else:
+        status_text = (
+            f"❌ **Подписка истекла**\n\n"
+            f"Продлите подписку, чтобы продолжить доступ к материалам!"
+        )
+    
+    await callback.message.edit_text(
+        status_text,
+        reply_markup=get_main_menu(),
+        parse_mode="Markdown"
+    )
+    await callback.answer()
+
+@dp.callback_query(F.data == "back")
+async def go_back(callback: types.CallbackQuery):
+    await callback.message.edit_text(
+        f"👋 Привет, {callback.from_user.first_name}!\n\n"
+        "Добро пожаловать в бот закрытой группы с развивающими материалами для детей!\n\n"
+        "🎁 Попробуй бесплатно 7 дней! После пробного периода выбери удобную подписку и развивайся вместе с нами 👇",
+        reply_markup=get_main_menu()
+    )
+    await callback.answer()
+
+@dp.callback_query(F.data == "how_it_works")
+async def how_it_works(callback: types.CallbackQuery):
+    """Инструкция как работает бот"""
+    track_user_action(callback.from_user.id, 'viewed_how_it_works')
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🎁 Попробовать сейчас", callback_data="ready_for_trial")],
+        [InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_start")]
+    ])
+    
+    await callback.message.edit_text(
+        "📖 **КАК ЭТО РАБОТАЕТ?**\n\n"
+        "**Шаг 1:** Активация пробного периода\n"
+        "Нажми кнопку и получи доступ мгновенно!\n\n"
+        "**Шаг 2:** Получи ссылку на группу\n"
+        "Перейди в закрытую группу с материалами\n\n"
+        "**Шаг 3:** Начни заниматься!\n"
+        "В группе найдешь:\n"
+        "• 📚 Развивающие игры и задания\n"
+        "• 🎨 Творческие активности\n"
+        "• 📖 Обучающие материалы\n"
+        "• 🎯 Готовые занятия на каждый день\n\n"
+        "💡 **Важно:**\n"
+        "• Доступ бесплатный 7 дней\n"
+        "• Никакой предоплаты\n"
+        "• Можно отменить в любой момент\n\n"
+        "🎁 **Попробуй прямо сейчас!**",
+        reply_markup=keyboard,
+        parse_mode="Markdown"
+    )
+    await callback.answer()
+
+@dp.callback_query(F.data == "need_help")
+async def need_help(callback: types.CallbackQuery):
+    """Пользователь просит помощи"""
+    track_user_action(callback.from_user.id, 'requested_help')
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💬 Написать в поддержку", url="https://t.me/razvitie_dety")],
+        [InlineKeyboardButton(text="❓ Частые вопросы", callback_data="faq")]
+    ])
+    
+    await callback.message.edit_text(
+        "💡 **Чем могу помочь?**\n\n"
+        "Напиши нам в поддержку - ответим в течение 5 минут!\n\n"
+        "Или посмотри частые вопросы - возможно, там уже есть ответ 👇",
+        reply_markup=keyboard,
+        parse_mode="Markdown"
+    )
+    await callback.answer()
+
+@dp.callback_query(F.data.in_(['feedback_expensive', 'feedback_content', 'feedback_time', 'feedback_other', 'feedback_good']))
+async def handle_feedback(callback: types.CallbackQuery):
+    """Обработка обратной связи"""
+    feedback_type = callback.data.replace('feedback_', '')
+    track_user_action(callback.from_user.id, f'feedback_{feedback_type}')
+    await callback.answer("Спасибо за обратную связь! 🙏", show_alert=True)
+
+# ========================================
+# FAQ
+# ========================================
+
+@dp.callback_query(F.data == "faq")
+async def show_faq(callback: types.CallbackQuery):
+    """Показать FAQ"""
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="1️⃣ Как продлить подписку?", callback_data="faq_1")],
+        [InlineKeyboardButton(text="2️⃣ Как узнать срок окончания подписки?", callback_data="faq_3")],
+        [InlineKeyboardButton(text="3️⃣ Можно ли вернуть деньги?", callback_data="faq_4")],
+        [InlineKeyboardButton(text="4️⃣ Что входит в подписку?", callback_data="faq_5")],
+        [InlineKeyboardButton(text="5️⃣ Как изменить тариф?", callback_data="faq_6")],
+        [InlineKeyboardButton(text="💬 Связаться с поддержкой", url="https://t.me/razvitie_dety")],
+        [InlineKeyboardButton(text="◀️ Назад", callback_data="back")]
+    ])
+    
+    await callback.message.edit_text(
+        "❓ **Часто задаваемые вопросы**\n\n"
+        "Выберите интересующий вас вопрос:",
+        reply_markup=keyboard,
+        parse_mode="Markdown"
+    )
+    await callback.answer()
+
+@dp.callback_query(F.data == "faq_1")
+async def faq_answer_1(callback: types.CallbackQuery):
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="◀️ К вопросам", callback_data="faq")]
+    ])
+    
+    await callback.message.edit_text(
+        "**1. Как продлить подписку?**\n\n"
+        "• Введите /start\n"
+        "• Выберите нужный тариф\n"
+        "• Оплатите удобным способом\n\n"
+        "⚠️ **Важно:** Подписка продлевается вручную. "
+        "Мы пришлём напоминание за 2 дня до окончания!",
+        reply_markup=keyboard,
+        parse_mode="Markdown"
+    )
+    await callback.answer()
+
+@dp.callback_query(F.data == "faq_3")
+async def faq_answer_3(callback: types.CallbackQuery):
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="◀️ К вопросам", callback_data="faq")]
+    ])
+    
+    await callback.message.edit_text(
+        "**2. Как узнать срок окончания подписки?**\n\n"
+        "Чтобы проверить свою подписку:\n\n"
+        "1️⃣ Введите команду /start\n"
+        "2️⃣ Нажмите кнопку \"ℹ️ Мой статус\"\n\n"
+        "Вы увидите:\n"
+        "• Текущий тариф\n"
+        "• Дату окончания подписки\n"
+        "• Количество оставшихся дней\n\n"
+        "📱 Также бот отправит вам уведомление за 2 дня до окончания!",
+        reply_markup=keyboard,
+        parse_mode="Markdown"
+    )
+    await callback.answer()
+
+@dp.callback_query(F.data == "faq_4")
+async def faq_answer_4(callback: types.CallbackQuery):
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💬 Связаться с поддержкой", url="https://t.me/razvitie_dety")],
+        [InlineKeyboardButton(text="◀️ К вопросам", callback_data="faq")]
+    ])
+    
+    await callback.message.edit_text(
+        "**3. Можно ли вернуть деньги?**\n\n"
+        "🎁 **Пробный период:**\n"
+        "Воспользуйтесь бесплатным доступом на 7 дней, чтобы оценить качество материалов перед покупкой!\n\n"
+        "💰 **Возврат средств:**\n"
+        "Возврат возможен в течение 3 дней после оплаты, если:\n"
+        "• Вы не получили доступ к материалам\n"
+        "• Возникли технические проблемы\n"
+        "• Контент не соответствует описанию\n\n"
+        "Для оформления возврата свяжитесь с поддержкой\n\n"
+        "⚠️ **Обратите внимание:**\n"
+        "После использования материалов возврат не предусмотрен согласно законодательству об информационных услугах.",
+        reply_markup=keyboard,
+        parse_mode="Markdown"
+    )
+    await callback.answer()
+
+@dp.callback_query(F.data == "faq_5")
+async def faq_answer_5(callback: types.CallbackQuery):
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🎥 Видео: Обзор материалов", url=DEMO_VIDEO_URL)],
+        [InlineKeyboardButton(text="🎥 Примеры заданий", url=DEMO_PHOTOS_URL)],
+        [InlineKeyboardButton(text="◀️ К вопросам", callback_data="faq")]
+    ])
+    
+    await callback.message.edit_text(
+        "**4. Что входит в подписку?**\n\n"
+        "🎥 **Смотрите видеообзоры** - наглядно покажем что внутри!\n\n"
+        "📚 **Доступ к материалам:**\n"
+        "• Развивающие игры и задания\n"
+        "• Образовательный контент по возрастам\n"
+        "• Творческие мастер-классы\n"
+        "• Методические материалы для родителей\n\n"
+        "👥 **Закрытая группа:**\n"
+        "• Общение с другими родителями\n"
+        "• Регулярные обновления контента\n"
+        "• Поддержка и советы экспертов\n\n"
+        "🎁 **Бонусы:**\n"
+        "• Эксклюзивные материалы для подписчиков\n"
+        "• Раннее получение новинок\n"
+        "• Специальные акции и скидки\n\n"
+        "💡 Попробуйте бесплатно 7 дней, чтобы оценить все возможности!",
+        reply_markup=keyboard,
+        parse_mode="Markdown"
+    )
+    await callback.answer()
+
+@dp.callback_query(F.data == "faq_6")
+async def faq_answer_6(callback: types.CallbackQuery):
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📅 Посмотреть тарифы", callback_data="show_tariffs")],
+        [InlineKeyboardButton(text="◀️ К вопросам", callback_data="faq")]
+    ])
+    
+    await callback.message.edit_text(
+        "**5. Как изменить тариф?**\n\n"
+        "📈 **Повышение тарифа:**\n"
+        "Вы можете в любой момент перейти на более длительную подписку:\n"
+        "• Выберите новый тариф\n"
+        "• Оплатите разницу\n"
+        "• Доступ продлится с учетом оставшихся дней\n\n"
+        "📉 **Понижение тарифа:**\n"
+        "• Текущая подписка действует до конца оплаченного периода\n"
+        "• После окончания выберите другой тариф\n\n"
+        "♾️ **Тариф 'Навсегда':**\n"
+        "• Бессрочный доступ без ограничений\n"
+        "• Самая выгодная цена\n"
+        "• Скидка 80%!\n\n"
+        "💡 **Совет:** Длительные тарифы выгоднее - экономия до 80%!",
+        reply_markup=keyboard,
+        parse_mode="Markdown"
+    )
+    await callback.answer()
+
+@dp.message(Command("faq"))
+async def cmd_faq(message: types.Message):
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="1️⃣ Как продлить подписку?", callback_data="faq_1")],
+        [InlineKeyboardButton(text="2️⃣ Как узнать срок окончания подписки?", callback_data="faq_3")],
+        [InlineKeyboardButton(text="3️⃣ Можно ли вернуть деньги?", callback_data="faq_4")],
+        [InlineKeyboardButton(text="4️⃣ Что входит в подписку?", callback_data="faq_5")],
+        [InlineKeyboardButton(text="5️⃣ Как изменить тариф?", callback_data="faq_6")],
+        [InlineKeyboardButton(text="💬 Связаться с поддержкой", url="https://t.me/razvitie_dety")]
+    ])
+    
+    await message.answer(
+        "❓ **Часто задаваемые вопросы**\n\n"
+        "Выберите интересующий вас вопрос:",
+        reply_markup=keyboard,
+        parse_mode="Markdown"
+    )
+
+# ========================================
+# АДМИНСКИЕ КОМАНДЫ
+# ========================================
 
 @dp.message(Command("broadcast"))
 async def cmd_broadcast(message: types.Message, state: FSMContext):
@@ -738,10 +1452,7 @@ async def select_broadcast_type(callback: types.CallbackQuery, state: FSMContext
     
     await callback.message.edit_text(
         "✍️ **Напиши текст сообщения для рассылки:**\n\n"
-        "Можешь использовать форматирование Markdown:\n"
-        "• `*жирный*` → **жирный**\n"
-        "• `_курсив_` → _курсив_\n"
-        "• `[ссылка](url)` → [ссылка](url)\n\n"
+        "Можешь использовать форматирование Markdown\n\n"
         "💡 Для отмены отправь /cancel",
         parse_mode="Markdown"
     )
@@ -872,517 +1583,9 @@ async def execute_broadcast(callback: types.CallbackQuery, state: FSMContext):
 
 @dp.callback_query(F.data == "cancel_broadcast", BroadcastStates.confirm)
 async def cancel_broadcast(callback: types.CallbackQuery, state: FSMContext):
-    """Отмена рассылки"""
     await callback.message.edit_text("❌ Рассылка отменена")
     await state.clear()
     await callback.answer()
-
-# ========================================
-# 🆕 ОБНОВЛЕННЫЙ /start - С ПРОГРЕВОМ
-# ========================================
-
-@dp.message(Command("start"))
-async def cmd_start(message: types.Message):
-    """Обработчик команды /start с воронкой прогрева"""
-    user_id = message.from_user.id
-    username = message.from_user.username
-    
-    user = get_user(user_id)
-    
-    if not user:
-        # 🆕 НОВЫЙ пользователь - показываем ВОРОНКУ ПРОГРЕВА
-        track_user_action(user_id, 'started_bot')
-        
-        await message.answer(
-            f"👋 Привет, {message.from_user.first_name}!\n\n"
-            "Добро пожаловать в клуб развивающих материалов для детей!\n\n"
-            "🎯 **Что у нас есть:**\n"
-            "• 1000+ готовых занятий и игр\n"
-            "• Материалы обновляются каждую неделю\n"
-            "• Всё разделено по возрастам и навыкам\n"
-            "• 87% родителей продлевают подписку после пробного периода\n\n"
-            "💡 **Сначала посмотри примеры - потом решишь попробовать!**\n\n"
-            "👇 Что хочешь узнать первым?",
-            reply_markup=get_new_user_menu(),
-            parse_mode="Markdown"
-        )
-    else:
-        # Существующий пользователь
-        if is_subscription_active(user_id):
-            await message.answer(
-                f"👋 С возвращением, {message.from_user.first_name}!\n\n"
-                "Твоя подписка активна! 🎉",
-                reply_markup=get_main_menu()
-            )
-        else:
-            await message.answer(
-                f"👋 Привет, {message.from_user.first_name}!\n\n"
-                "Твоя подписка истекла 😔\n\n"
-                "Продли подписку чтобы продолжить пользоваться материалами!",
-                reply_markup=get_main_menu()
-            )
-
-# ========================================
-# 🆕 НОВЫЕ ОБРАБОТЧИКИ ПРОГРЕВА
-# ========================================
-
-@dp.callback_query(F.data == "show_demo")
-async def show_demo_content(callback: types.CallbackQuery):
-    """Показать примеры материалов ПЕРЕД активацией trial"""
-    track_user_action(callback.from_user.id, 'viewed_demo')
-    
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🎥 Видео-обзор материалов", url=DEMO_VIDEO_URL)],
-        [InlineKeyboardButton(text="🎨 Примеры заданий", url=DEMO_PHOTOS_URL)],
-        [InlineKeyboardButton(text="📚 Как это работает?", callback_data="how_it_works")],
-        [InlineKeyboardButton(text="🔥 Хочу попробовать!", callback_data="ready_for_trial")],
-        [InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_start")]
-    ])
-    
-    await callback.message.edit_text(
-        "🎨 **ПРИМЕРЫ НАШИХ МАТЕРИАЛОВ:**\n\n"
-        "Посмотри что получают родители внутри клуба:\n\n"
-        "🎯 **Для детей 3-5 лет:**\n"
-        "• Игры на развитие внимания и памяти\n"
-        "• Подготовка руки к письму\n"
-        "• Изучение цветов, форм, размеров\n"
-        "• Развитие речи через игру\n\n"
-        "🎯 **Для детей 5-7 лет:**\n"
-        "• Обучение чтению по слогам\n"
-        "• Математика в игровой форме\n"
-        "• Логические задачки\n"
-        "• Подготовка к школе\n\n"
-        "📹 **Смотри видео** - там показаны реальные материалы!\n\n"
-        "💡 Всё это доступно в закрытой группе 24/7",
-        reply_markup=keyboard,
-        parse_mode="Markdown"
-    )
-    await callback.answer()
-
-@dp.callback_query(F.data == "show_reviews")
-async def show_reviews(callback: types.CallbackQuery):
-    """Показать РЕАЛЬНЫЕ отзывы родителей"""
-    track_user_action(callback.from_user.id, 'viewed_reviews')
-    
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📸 Больше отзывов в канале", url=REVIEWS_URL)],
-        [InlineKeyboardButton(text="🔥 Убедили! Хочу попробовать", callback_data="ready_for_trial")],
-        [InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_start")]
-    ])
-    
-    await callback.message.edit_text(
-        "💬 **ЧТО ГОВОРЯТ РОДИТЕЛИ:**\n\n"
-        "**Анна, 2 ребенка (4 и 6 лет):**\n"
-        "_\"За неделю дочка выучила 10 букв! Занимаемся по 15 минут утром. "
-        "Материалы яркие, ребенок сам просит позаниматься!\"_\n\n"
-        "**Олег, сын 5 лет:**\n"
-        "_\"Раньше тратил 2-3 часа на поиск заданий в интернете. "
-        "Теперь всё в одном месте. Окупилось за первую неделю!\"_\n\n"
-        "**Мария, дочка 3 года:**\n"
-        "_\"Попробовали trial - не смогли остановиться. "
-        "Оформили Навсегда со скидкой. Лучшее вложение в ребенка!\"_\n\n"
-        "📊 **Наши цифры:**\n"
-        "• 87% родителей продлевают после trial\n"
-        "• 1000+ активных семей\n"
-        "• 5000+ материалов в базе\n"
-        "• 4.9/5 средняя оценка\n\n"
-        "🎁 Попробуй сам - первые 7 дней бесплатно!",
-        reply_markup=keyboard,
-        parse_mode="Markdown"
-    )
-    await callback.answer()
-
-@dp.callback_query(F.data == "ready_for_trial")
-async def ready_for_trial(callback: types.CallbackQuery):
-    """🆕 Пользователь ГОТОВ активировать trial - объясняем процесс"""
-    track_user_action(callback.from_user.id, 'clicked_ready_for_trial')
-    
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(
-            text="✅ Активировать 7 дней БЕСПЛАТНО", 
-            url="https://t.me/tribute/app?startapp=sHr8"
-        )],
-        [InlineKeyboardButton(text="❓ У меня вопросы", callback_data="faq")],
-        [InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_start")]
-    ])
-    
-    await callback.message.edit_text(
-        "🎁 **КАК РАБОТАЕТ ПРОБНЫЙ ПЕРИОД:**\n\n"
-        "**Шаг 1:** Привяжи карту через Telegram Stars\n"
-        "💳 Это нужно для защиты от ботов - списания **НЕ будет**!\n\n"
-        "**Шаг 2:** Получи промокод на 7 дней\n"
-        "🎫 Активируешь его в боте командой /activate ПРОМОКОД\n\n"
-        "**Шаг 3:** Получи ссылку на закрытую группу\n"
-        "🔗 Переходишь и начинаешь заниматься!\n\n"
-        "⏰ **ВАЖНО:**\n"
-        "• Первые 7 дней - **полностью БЕСПЛАТНО**\n"
-        "• Карта нужна только для идентификации\n"
-        "• Никаких автосписаний - всё под контролем\n"
-        "• Отменить можно в любой момент\n\n"
-        "🎯 **После trial (если понравится):**\n"
-        "Сможешь продлить со **скидкой 60-80%**:\n"
-        "• 1 месяц: 199₽ (вместо 499₽)\n"
-        "• Навсегда: 599₽ (вместо 2990₽)\n\n"
-        "💡 **Попробуй без риска - тебе понравится!**",
-        reply_markup=keyboard,
-        parse_mode="Markdown"
-    )
-    await callback.answer()
-
-@dp.callback_query(F.data == "back_to_start")
-async def back_to_start(callback: types.CallbackQuery):
-    """Вернуться к начальному меню"""
-    await callback.message.edit_text(
-        f"👋 Привет, {callback.from_user.first_name}!\n\n"
-        "Добро пожаловать в клуб развивающих материалов для детей!\n\n"
-        "🎯 **Что у нас есть:**\n"
-        "• 1000+ готовых занятий и игр\n"
-        "• Материалы обновляются каждую неделю\n"
-        "• Всё разделено по возрастам и навыкам\n"
-        "• 87% родителей продлевают подписку\n\n"
-        "💡 **Сначала посмотри примеры - потом решишь!**\n\n"
-        "👇 Что хочешь узнать первым?",
-        reply_markup=get_new_user_menu(),
-        parse_mode="Markdown"
-    )
-    await callback.answer()
-
-# ОСТАВШИЕСЯ ОБРАБОТЧИКИ БЕЗ ИЗМЕНЕНИЙ
-
-@dp.callback_query(F.data == "trial")
-async def process_trial(callback: types.CallbackQuery):
-    """Обработчик кнопки 'Попробовать бесплатно'"""
-    user_id = callback.from_user.id
-    username = callback.from_user.username
-    
-    user = get_user(user_id)
-    
-    if user:
-        await callback.answer(
-            "Вы уже использовали пробный период! 😊",
-            show_alert=True
-        )
-        return
-    
-    add_user(user_id, username, TARIFFS['trial']['days'], 'trial')
-    track_user_action(user_id, 'activated_trial')
-    
-    try:
-        invite_link = await bot.create_chat_invite_link(
-            CHANNEL_ID,
-            member_limit=1,
-            expire_date=datetime.now() + timedelta(days=TARIFFS['trial']['days'])
-        )
-        
-        await callback.message.edit_text(
-            f"🎉 **Поздравляем!**\n\n"
-            f"Вам активирован пробный период на {TARIFFS['trial']['days']} дней!\n\n"
-            f"**ВАЖНО: Сохрани эту ссылку!**\n\n"
-            f"Переходи по ссылке: {invite_link.invite_link}\n\n"
-            f"⏰ Доступ истечет через {TARIFFS['trial']['days']} дней.\n"
-            f"После этого выбери подходящий тариф!\n\n"
-            f"💡 Это ссылка для присоединения к закрытой группе.",
-            parse_mode="HTML"
-        )
-        
-        await callback.answer()
-        
-    except Exception as e:
-        logging.error(f"Error adding user to channel: {e}")
-        await callback.message.edit_text(
-            "❌ Произошла ошибка. Обратитесь к администратору.",
-            reply_markup=get_main_menu()
-        )
-    
-    await callback.answer()
-
-@dp.callback_query(F.data == "show_tariffs")
-async def show_tariffs(callback: types.CallbackQuery):
-    """Показать список тарифов"""
-    track_user_action(callback.from_user.id, 'viewed_tariffs')
-    
-    await callback.message.edit_text(
-        "📋 **Выберите подходящую подписку:**\n\n"
-        "💎 **1 месяц - 199₽**\n"
-        "~~499₽~~ → Скидка 60%!\n"
-        "• Идеально чтобы протестировать\n"
-        "• Самый популярный выбор\n\n"
-        "🔥 **НАВСЕГДА - 599₽**\n"
-        "~~2990₽~~ → Скидка 80%!\n"
-        "• Разовый платеж - больше не платишь\n"
-        "• Лучшая цена!\n"
-        "• Доступ без ограничений\n\n"
-        "⚡️ **Специальные цены только для вас!**",
-        reply_markup=get_tariffs_menu(),
-        parse_mode="Markdown"
-    )
-    await callback.answer()
-
-@dp.callback_query(F.data.in_(['1month', 'forever']))
-async def process_tariff(callback: types.CallbackQuery):
-    user_id = callback.from_user.id
-    tariff_code = callback.data
-    tariff = TARIFFS[tariff_code]
-    
-    track_user_action(user_id, f'selected_tariff_{tariff_code}')
-    
-    await callback.answer("⏳ Создаем платеж...", show_alert=False)
-    
-    payment = await create_yookassa_payment(
-        amount=tariff['price'],
-        description=f"Подписка: {tariff['name']}",
-        user_id=user_id
-    )
-    
-    if not payment:
-        await callback.message.edit_text(
-            "❌ Ошибка создания платежа. Попробуйте позже.",
-            reply_markup=get_main_menu()
-        )
-        return
-    
-    create_payment(user_id, tariff['price'], tariff_code, payment['id'])
-    confirmation_url = payment['confirmation']['confirmation_url']
-    
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💳 Оплатить", url=confirmation_url)],
-        [InlineKeyboardButton(text="🔄 Проверить оплату", callback_data=f"check_{payment['id']}")],
-        [InlineKeyboardButton(text="◀️ Назад", callback_data="back")]
-    ])
-    
-    await callback.message.edit_text(
-        f"📦 Вы выбрали: **{tariff['name']}**\n"
-        f"💰 Полная цена: ~~{tariff['old_price']}₽~~\n"
-        f"💳 К оплате: **{tariff['price']}₽**\n\n"
-        f"**Как оплатить:**\n"
-        f"1️⃣ Нажмите 'Оплатить'\n"
-        f"2️⃣ Завершите оплату\n"
-        f"3️⃣ Вернитесь и нажмите 'Проверить оплату'\n\n"
-        f"⚠️ Доступ откроется автоматически после оплаты!",
-        reply_markup=keyboard,
-        parse_mode="Markdown"
-    )
-
-@dp.callback_query(F.data == "status")
-async def check_status(callback: types.CallbackQuery):
-    user_id = callback.from_user.id
-    user = get_user(user_id)
-    
-    if not user:
-        await callback.answer(
-            "❌ У вас нет активной подписки. Попробуйте бесплатно!",
-            show_alert=True
-        )
-        return
-    
-    subscription_until = user['subscription_until']
-    is_active = datetime.now() < subscription_until
-    
-    if is_active:
-        days_left = (subscription_until - datetime.now()).days
-        tariff_info = TARIFFS.get(user['tariff'], {})
-        
-        if user['tariff'] == 'forever':
-            status_text = (
-                f"✅ **Ваша подписка активна!**\n\n"
-                f"📅 Тариф: {tariff_info.get('name', 'Неизвестно')}\n"
-                f"♾️ Бессрочная подписка"
-            )
-        else:
-            status_text = (
-                f"✅ **Ваша подписка активна!**\n\n"
-                f"📅 Тариф: {tariff_info.get('name', 'Неизвестно')}\n"
-                f"⏰ Осталось дней: {days_left}\n"
-                f"📆 Действует до: {subscription_until.strftime('%d.%m.%Y')}"
-            )
-    else:
-        status_text = (
-            f"❌ **Подписка истекла**\n\n"
-            f"Продлите подписку, чтобы продолжить доступ к материалам!"
-        )
-    
-    await callback.message.edit_text(
-        status_text,
-        reply_markup=get_main_menu(),
-        parse_mode="Markdown"
-    )
-    await callback.answer()
-
-@dp.callback_query(F.data == "back")
-async def go_back(callback: types.CallbackQuery):
-    await callback.message.edit_text(
-        f"👋 Привет, {callback.from_user.first_name}!\n\n"
-        "Добро пожаловать в бот закрытой группы с развивающими материалами для детей!\n\n"
-        "🎁 Попробуй бесплатно 7 дней! После пробного периода выбери удобную подписку и развивайся вместе с нами 👇",
-        reply_markup=get_main_menu()
-    )
-    await callback.answer()
-
-@dp.callback_query(F.data == "faq")
-async def show_faq(callback: types.CallbackQuery):
-    """Показать FAQ"""
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="1️⃣ Как продлить подписку?", callback_data="faq_1")],
-        [InlineKeyboardButton(text="2️⃣ Как узнать срок окончания подписки?", callback_data="faq_3")],
-        [InlineKeyboardButton(text="3️⃣ Можно ли вернуть деньги?", callback_data="faq_4")],
-        [InlineKeyboardButton(text="4️⃣ Что входит в подписку?", callback_data="faq_5")],
-        [InlineKeyboardButton(text="5️⃣ Как изменить тариф?", callback_data="faq_6")],
-        [InlineKeyboardButton(text="💬 Связаться с поддержкой", url="https://t.me/razvitie_dety")],
-        [InlineKeyboardButton(text="◀️ Назад", callback_data="back")]
-    ])
-    
-    await callback.message.edit_text(
-        "❓ **Часто задаваемые вопросы**\n\n"
-        "Выберите интересующий вас вопрос:",
-        reply_markup=keyboard,
-        parse_mode="Markdown"
-    )
-    await callback.answer()
-
-@dp.callback_query(F.data == "faq_1")
-async def faq_answer_1(callback: types.CallbackQuery):
-    """Ответ на вопрос 1"""
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="◀️ К вопросам", callback_data="faq")]
-    ])
-    
-    await callback.message.edit_text(
-        "**1. Как продлить подписку?**\n\n"
-        "• Введите /start\n"
-        "• Выберите нужный тариф\n"
-        "• Оплатите удобным способом\n\n"
-        "⚠️ **Важно:** Подписка продлевается вручную. "
-        "Мы пришлём напоминание за 2 дня до окончания!",
-        reply_markup=keyboard,
-        parse_mode="Markdown"
-    )
-    
-    await callback.answer()
-
-@dp.callback_query(F.data == "faq_3")
-async def faq_answer_3(callback: types.CallbackQuery):
-    """Ответ на вопрос 2"""
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="◀️ К вопросам", callback_data="faq")]
-    ])
-    
-    await callback.message.edit_text(
-        "**2. Как узнать срок окончания подписки?**\n\n"
-        "Чтобы проверить свою подписку:\n\n"
-        "1️⃣ Введите команду /start\n"
-        "2️⃣ Нажмите кнопку \"ℹ️ Мой статус\"\n\n"
-        "Вы увидите:\n"
-        "• Текущий тариф\n"
-        "• Дату окончания подписки\n"
-        "• Количество оставшихся дней\n\n"
-        "📱 Также бот отправит вам уведомление за 2 дня до окончания!",
-        reply_markup=keyboard,
-        parse_mode="Markdown"
-    )
-    await callback.answer()
-
-@dp.callback_query(F.data == "faq_4")
-async def faq_answer_4(callback: types.CallbackQuery):
-    """Ответ на вопрос 3"""
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💬 Связаться с поддержкой", url="https://t.me/razvitie_dety")],
-        [InlineKeyboardButton(text="◀️ К вопросам", callback_data="faq")]
-    ])
-    
-    await callback.message.edit_text(
-        "**3. Можно ли вернуть деньги?**\n\n"
-        "🎁 **Пробный период:**\n"
-        "Воспользуйтесь бесплатным доступом на 7 дней, чтобы оценить качество материалов перед покупкой!\n\n"
-        "💰 **Возврат средств:**\n"
-        "Возврат возможен в течение 3 дней после оплаты, если:\n"
-        "• Вы не получили доступ к материалам\n"
-        "• Возникли технические проблемы\n"
-        "• Контент не соответствует описанию\n\n"
-        "Для оформления возврата свяжитесь с поддержкой\n\n"
-        "⚠️ **Обратите внимание:**\n"
-        "После использования материалов возврат не предусмотрен согласно законодательству об информационных услугах.",
-        reply_markup=keyboard,
-        parse_mode="Markdown"
-    )
-    await callback.answer()
-
-@dp.callback_query(F.data == "faq_5")
-async def faq_answer_5(callback: types.CallbackQuery):
-    """Ответ на вопрос 4"""
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🎥 Видео: Обзор материалов", url=DEMO_VIDEO_URL)],
-        [InlineKeyboardButton(text="🎥 Примеры заданий", url=DEMO_PHOTOS_URL)],
-        [InlineKeyboardButton(text="◀️ К вопросам", callback_data="faq")]
-    ])
-    
-    await callback.message.edit_text(
-        "**4. Что входит в подписку?**\n\n"
-        "🎥 **Смотрите видеообзоры** - наглядно покажем что внутри!\n\n"
-        "📚 **Доступ к материалам:**\n"
-        "• Развивающие игры и задания\n"
-        "• Образовательный контент по возрастам\n"
-        "• Творческие мастер-классы\n"
-        "• Методические материалы для родителей\n\n"
-        "👥 **Закрытая группа:**\n"
-        "• Общение с другими родителями\n"
-        "• Регулярные обновления контента\n"
-        "• Поддержка и советы экспертов\n\n"
-        "🎁 **Бонусы:**\n"
-        "• Эксклюзивные материалы для подписчиков\n"
-        "• Раннее получение новинок\n"
-        "• Специальные акции и скидки\n\n"
-        "💡 Попробуйте бесплатно 7 дней, чтобы оценить все возможности!",
-        reply_markup=keyboard,
-        parse_mode="Markdown"
-    )
-    await callback.answer()
-
-@dp.callback_query(F.data == "faq_6")
-async def faq_answer_6(callback: types.CallbackQuery):
-    """Ответ на вопрос 5"""
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📅 Посмотреть тарифы", callback_data="show_tariffs")],
-        [InlineKeyboardButton(text="◀️ К вопросам", callback_data="faq")]
-    ])
-    
-    await callback.message.edit_text(
-        "**5. Как изменить тариф?**\n\n"
-        "📈 **Повышение тарифа:**\n"
-        "Вы можете в любой момент перейти на более длительную подписку:\n"
-        "• Выберите новый тариф\n"
-        "• Оплатите разницу\n"
-        "• Доступ продлится с учетом оставшихся дней\n\n"
-        "📉 **Понижение тарифа:**\n"
-        "• Текущая подписка действует до конца оплаченного периода\n"
-        "• После окончания выберите другой тариф\n\n"
-        "♾️ **Тариф 'Навсегда':**\n"
-        "• Бессрочный доступ без ограничений\n"
-        "• Самая выгодная цена\n"
-        "• Скидка 80%!\n\n"
-        "💡 **Совет:** Длительные тарифы выгоднее - экономия до 80%!",
-        reply_markup=keyboard,
-        parse_mode="Markdown"
-    )
-    await callback.answer()
-
-@dp.message(Command("faq"))
-async def cmd_faq(message: types.Message):
-    """Команда для показа FAQ"""
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="1️⃣ Как продлить подписку?", callback_data="faq_1")],
-        [InlineKeyboardButton(text="2️⃣ Как узнать срок окончания подписки?", callback_data="faq_3")],
-        [InlineKeyboardButton(text="3️⃣ Можно ли вернуть деньги?", callback_data="faq_4")],
-        [InlineKeyboardButton(text="4️⃣ Что входит в подписку?", callback_data="faq_5")],
-        [InlineKeyboardButton(text="5️⃣ Как изменить тариф?", callback_data="faq_6")],
-        [InlineKeyboardButton(text="💬 Связаться с поддержкой", url="https://t.me/razvitie_dety")]
-    ])
-    
-    await message.answer(
-        "❓ **Часто задаваемые вопросы**\n\n"
-        "Выберите интересующий вас вопрос:",
-        reply_markup=keyboard,
-        parse_mode="Markdown"
-    )
 
 @dp.message(Command("stats"))
 async def admin_stats(message: types.Message):
@@ -1406,7 +1609,6 @@ async def admin_stats(message: types.Message):
     cur.execute('SELECT COUNT(*) as count FROM payments WHERE status = %s', ('pending',))
     pending_payments = cur.fetchone()['count']
     
-    # 🆕 Аналитика воронки прогрева
     cur.execute('''SELECT action, COUNT(*) as count 
                    FROM funnel_analytics 
                    WHERE created_at >= NOW() - INTERVAL '7 days'
@@ -1468,41 +1670,12 @@ async def confirm_clear_db(callback: types.CallbackQuery):
         
         tables_cleared = []
         
-        try:
-            cur.execute('DELETE FROM notifications')
-            tables_cleared.append('notifications')
-        except Exception as e:
-            logging.warning(f"Error clearing notifications: {e}")
-        
-        try:
-            cur.execute('DELETE FROM payments')
-            tables_cleared.append('payments')
-        except Exception as e:
-            logging.warning(f"Error clearing payments: {e}")
-        
-        try:
-            cur.execute('DELETE FROM users')
-            tables_cleared.append('users')
-        except Exception as e:
-            logging.warning(f"Error clearing users: {e}")
-        
-        try:
-            cur.execute('DELETE FROM funnel_analytics')
-            tables_cleared.append('funnel_analytics')
-        except Exception as e:
-            logging.warning(f"Error clearing funnel_analytics: {e}")
-        
-        try:
-            cur.execute('DELETE FROM welcome_messages')
-            tables_cleared.append('welcome_messages')
-        except Exception as e:
-            logging.warning(f"Error clearing welcome_messages: {e}")
-        
-        try:
-            cur.execute('DELETE FROM funnel_messages')
-            tables_cleared.append('funnel_messages')
-        except Exception as e:
-            logging.warning(f"Error clearing funnel_messages: {e}")
+        for table in ['notifications', 'payments', 'users', 'funnel_analytics', 'welcome_messages', 'funnel_messages']:
+            try:
+                cur.execute(f'DELETE FROM {table}')
+                tables_cleared.append(table)
+            except Exception as e:
+                logging.warning(f"Error clearing {table}: {e}")
         
         conn.commit()
         cur.close()
@@ -1527,75 +1700,7 @@ async def confirm_clear_db(callback: types.CallbackQuery):
 
 @dp.callback_query(F.data == "cancel_clear")
 async def cancel_clear_db(callback: types.CallbackQuery):
-    """Отмена очистки БД"""
     await callback.message.edit_text("✅ Очистка отменена. База данных не изменена.")
-    await callback.answer()
-
-@dp.callback_query(F.data.in_(['survey_games', 'survey_creative', 'survey_learning']))
-async def handle_survey(callback: types.CallbackQuery):
-    """Обработка опроса предпочтений"""
-    await callback.answer("Спасибо за ваш ответ! 💚", show_alert=True)
-
-@dp.callback_query(F.data.in_(['feedback_expensive', 'feedback_content', 'feedback_time', 'feedback_other', 'feedback_good']))
-async def handle_feedback(callback: types.CallbackQuery):
-    """Обработка обратной связи"""
-    feedback_type = callback.data.replace('feedback_', '')
-    track_user_action(callback.from_user.id, f'feedback_{feedback_type}')
-    await callback.answer("Спасибо за обратную связь! 🙏", show_alert=True)
-
-@dp.callback_query(F.data == "need_help")
-async def need_help(callback: types.CallbackQuery):
-    """Пользователь просит помощи"""
-    track_user_action(callback.from_user.id, 'requested_help')
-    
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💬 Написать в поддержку", url="https://t.me/razvitie_dety")],
-        [InlineKeyboardButton(text="❓ Частые вопросы", callback_data="faq")]
-    ])
-    
-    await callback.message.edit_text(
-        "💡 **Чем могу помочь?**\n\n"
-        "Напиши нам в поддержку - ответим в течение 5 минут!\n\n"
-        "Или посмотри частые вопросы - возможно, там уже есть ответ 👇",
-        reply_markup=keyboard,
-        parse_mode="Markdown"
-    )
-    await callback.answer()
-
-@dp.callback_query(F.data == "how_it_works")
-async def how_it_works(callback: types.CallbackQuery):
-    """Инструкция как работает бот"""
-    track_user_action(callback.from_user.id, 'viewed_how_it_works')
-    
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🎁 Попробовать сейчас", callback_data="ready_for_trial")],
-        [InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_start")]
-    ])
-    
-    await callback.message.edit_text(
-        "📖 **КАК ЭТО РАБОТАЕТ?**\n\n"
-        "**Шаг 1:** Активация пробного периода\n"
-        "Нажми кнопку и привяжи карту (без списаний!)\n\n"
-        "**Шаг 2:** Получи промокод\n"
-        "Система отправит тебе промокод на 7 дней\n\n"
-        "**Шаг 3:** Активируй промокод\n"
-        "Введи команду /activate ПРОМОКОД в этом боте\n\n"
-        "**Шаг 4:** Получи доступ\n"
-        "Перейди по ссылке в закрытую группу с материалами\n\n"
-        "**Шаг 5:** Начни заниматься!\n"
-        "В группе найдешь:\n"
-        "• 📚 Развивающие игры и задания\n"
-        "• 🎨 Творческие активности\n"
-        "• 📖 Обучающие материалы\n"
-        "• 🎯 Готовые занятия на каждый день\n\n"
-        "💡 **Важно:**\n"
-        "• Доступ бесплатный 7 дней\n"
-        "• Никакой предоплаты\n"
-        "• Можно отменить в любой момент\n\n"
-        "🎁 **Попробуй прямо сейчас!**",
-        reply_markup=keyboard,
-        parse_mode="Markdown"
-    )
     await callback.answer()
 
 @dp.message(Command("checkdb"))
@@ -1617,35 +1722,6 @@ async def admin_check_db(message: types.Message):
         unique = cur.fetchone()['unique_users']
         
         cur.execute('''
-            SELECT user_id, username, COUNT(*) as count
-            FROM users
-            GROUP BY user_id, username
-            HAVING COUNT(*) > 1
-            ORDER BY count DESC
-            LIMIT 10
-        ''')
-        dupes = cur.fetchall()
-        
-        cur.execute('''
-            SELECT 
-                DATE_TRUNC('hour', created_at) as hour,
-                COUNT(*) as count
-            FROM users
-            WHERE created_at >= NOW() - INTERVAL '12 hours'
-            GROUP BY hour
-            ORDER BY hour DESC
-            LIMIT 12
-        ''')
-        hourly = cur.fetchall()
-        
-        cur.execute('''
-            SELECT COUNT(*) as count
-            FROM users
-            WHERE created_at >= NOW() - INTERVAL '5 hours'
-        ''')
-        last_5h = cur.fetchone()['count']
-        
-        cur.execute('''
             SELECT 
                 COUNT(*) FILTER (WHERE subscription_until > NOW()) as active,
                 COUNT(*) FILTER (WHERE subscription_until <= NOW()) as expired,
@@ -1662,136 +1738,29 @@ async def admin_check_db(message: types.Message):
         conn.close()
         
         report = "🔍 **ДЕТАЛЬНАЯ ДИАГНОСТИКА**\n\n"
-        
         report += "📊 **Записи в базе:**\n"
         report += f"• Всего записей: {total}\n"
-        report += f"• Уникальных user_id: {unique}\n"
-        
-        if total != unique:
-            report += f"• ⚠️ Дублей: {total - unique}\n\n"
-        else:
-            report += f"• ✅ Дублей нет\n\n"
-        
-        if dupes:
-            report += "⚠️ **НАЙДЕНЫ ДУБЛИКАТЫ:**\n"
-            for d in dupes[:5]:
-                username = d['username'] or 'без username'
-                report += f"• @{username} (ID: {d['user_id']}): {d['count']} записей\n"
-            report += "\n"
-        
+        report += f"• Уникальных user_id: {unique}\n\n"
         report += "💎 **Статус подписок:**\n"
         report += f"• Активные: {subs['active']}\n"
         report += f"• Истёкшие: {subs['expired']}\n"
         report += f"• Trial: {subs['trial']}\n"
         report += f"• Платные: {subs['paid']}\n\n"
-        
-        report += f"⏰ **За последние 5 часов:** {last_5h} регистраций\n\n"
-        
-        report += "📈 **Регистрации по часам (UTC):**\n"
-        for h in hourly[:8]:
-            hour_str = h['hour'].strftime('%d.%m %H:00')
-            report += f"• {hour_str}: {h['count']} чел\n"
-        
-        report += f"\n🕐 **Время БД:** {db_time.strftime('%Y-%m-%d %H:%M:%S')} UTC\n"
-        
-        report += "\n💡 **Вывод:**\n"
-        
-        if total != unique:
-            report += "⚠️ В базе есть дубликаты записей!\n"
-        elif last_5h < 50:
-            report += f"⚠️ За 5ч всего {last_5h} регистраций\n"
-        else:
-            report += "✅ Всё отлично! База в норме!\n"
-        
-        activation_rate = round(100 * subs['active'] / total, 1) if total > 0 else 0
-        report += f"\n📊 **Активация:** {activation_rate}%\n"
+        report += f"🕐 **Время БД:** {db_time.strftime('%Y-%m-%d %H:%M:%S')} UTC\n"
         
         await message.answer(report, parse_mode="Markdown")
         
     except Exception as e:
         await message.answer(f"❌ Ошибка:\n{str(e)}")
-        import traceback
-        logging.error(f"Checkdb error: {e}\n{traceback.format_exc()}")
 
-# 🆕 ОБНОВЛЕННОЕ ПРИВЕТСТВЕННОЕ СООБЩЕНИЕ (через 5-10 мин)
-async def send_welcome_messages():
-    """Фоновая задача: отправка приветственных сообщений через 5-10 минут после регистрации"""
-    logging.info("Welcome messages task started!")
-    
-    while True:
-        try:
-            await asyncio.sleep(60)
-            
-            conn = get_db_connection()
-            cur = conn.cursor()
-            
-            cur.execute("""
-                SELECT u.user_id, u.username
-                FROM users u
-                LEFT JOIN welcome_messages wm ON u.user_id = wm.user_id
-                WHERE u.created_at >= NOW() - INTERVAL '10 minutes'
-                  AND u.created_at <= NOW() - INTERVAL '5 minutes'
-                  AND wm.user_id IS NULL
-                  AND u.tariff IS NULL
-            """)
-            
-            users = cur.fetchall()
-            cur.close()
-            conn.close()
-            
-            for user in users:
-                user_id = user['user_id']
-                
-                try:
-                    # 🆕 НОВОЕ ПРИВЕТСТВЕННОЕ СООБЩЕНИЕ (МЯГКОЕ)
-                    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                        [InlineKeyboardButton(text="🎥 Посмотреть примеры", callback_data="show_demo")],
-                        [InlineKeyboardButton(text="💬 Отзывы родителей", callback_data="show_reviews")],
-                        [InlineKeyboardButton(text="🎁 Начать пробный период", callback_data="ready_for_trial")]
-                    ])
-                    
-                    await bot.send_message(
-                        user_id,
-                        "👋 Я вижу ты заинтересовался нашим клубом!\n\n"
-                        "**Не торопись активировать trial** 😊\n\n"
-                        "Сначала посмотри:\n"
-                        "🎥 Видео с примерами материалов\n"
-                        "💬 Отзывы других родителей\n"
-                        "📚 Как это работает\n\n"
-                        "А **потом решишь** - подходит тебе или нет!\n\n"
-                        "💡 87% родителей после просмотра сразу начинают trial 🔥\n\n"
-                        "Что хочешь посмотреть первым?",
-                        reply_markup=keyboard,
-                        parse_mode="Markdown"
-                    )
-                    
-                    conn2 = get_db_connection()
-                    cur2 = conn2.cursor()
-                    cur2.execute("""
-                        INSERT INTO welcome_messages (user_id, sent_at)
-                        VALUES (%s, NOW())
-                        ON CONFLICT (user_id) DO NOTHING
-                    """, (user_id,))
-                    conn2.commit()
-                    cur2.close()
-                    conn2.close()
-                    
-                    track_user_action(user_id, 'received_welcome_message')
-                    logging.info(f"Welcome message sent to user {user_id}")
-                    
-                    await asyncio.sleep(0.1)
-                    
-                except Exception as e:
-                    logging.error(f"Error sending welcome to {user_id}: {e}")
-            
-        except Exception as e:
-            logging.error(f"Error in send_welcome_messages: {e}")
-            await asyncio.sleep(60)
+# ========================================
+# ЗАПУСК БОТА
+# ========================================
 
 async def main():
     init_db()
     feedback_broadcast.init_feedback_system(dp, bot, ADMIN_ID, get_db_connection)
-    logging.info("Bot started successfully!")
+    logging.info("🚀 Bot started successfully with Telegram Payments!")
     
     asyncio.create_task(check_and_remove_expired())
     asyncio.create_task(sales_funnel())
