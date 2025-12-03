@@ -1652,7 +1652,7 @@ async def admin_stats(message: types.Message):
     for stat in funnel_stats:
         stats_text += f"• {stat['action']}: {stat['count']}\n"
     
-    await message.answer(stats_text, parse_mode="Markdown")
+    await message.answer(stats_text, parse_mode="HTML")
 
 @dp.message(Command("cleardb"))
 async def admin_clear_db(message: types.Message):
