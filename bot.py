@@ -27,9 +27,9 @@ ADMIN_ID = int(os.getenv('ADMIN_ID', 0))
 DATABASE_URL = os.getenv('DATABASE_URL')
 
 # 🆕 НОВОЕ: Ссылки на демо-контент (ЗАМЕНИ НА СВОИ!)
-DEMO_VIDEO_URL = "https://t.me/instrukcii_baza/32"  # Видео-обзор материалов
-DEMO_PHOTOS_URL = "https://t.me/razvitie_dety"  # Канал с примерами
-REVIEWS_URL = "https://t.me/razvitie_dety"  # Канал с отзывами
+DEMO_VIDEO_URL = "https://t.me/instrukcii_baza"  # Видео-обзор материалов
+DEMO_PHOTOS_URL = "https://t.me/instrukcii_baza"  # Канал с примерами
+REVIEWS_URL = "https://t.me/otzovik_klub"  # Канал с отзывами
 
 # Тарифы
 TARIFFS = {
