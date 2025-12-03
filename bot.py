@@ -624,68 +624,6 @@ async def check_and_remove_expired():
             logging.error(f"Error in check_and_remove_expired: {e}")
             await asyncio.sleep(3600)
 
-# ЮKassa API
-async def create_yookassa_payment(amount, description, user_id):
-    """Создание платежа в ЮKassa"""
-    url = "https://api.yookassa.ru/v3/payments"
-    
-    idempotence_key = str(uuid.uuid4())
-    auth_string = f"{YOOKASSA_SHOP_ID}:{YOOKASSA_SECRET_KEY}"
-    auth_bytes = auth_string.encode('utf-8')
-    auth_b64 = base64.b64encode(auth_bytes).decode('utf-8')
-    
-    headers = {
-        "Idempotence-Key": idempotence_key,
-        "Content-Type": "application/json",
-        "Authorization": f"Basic {auth_b64}"
-    }
-    
-    data = {
-        "amount": {
-            "value": f"{amount:.2f}",
-            "currency": "RUB"
-        },
-        "confirmation": {
-            "type": "redirect",
-            "return_url": f"https://t.me/{(await bot.get_me()).username}"
-        },
-        "capture": True,
-        "description": description,
-        "metadata": {
-            "user_id": str(user_id)
-        }
-    }
-    
-    async with aiohttp.ClientSession() as session:
-        async with session.post(url, json=data, headers=headers) as response:
-            if response.status == 200:
-                result = await response.json()
-                return result
-            else:
-                logging.error(f"YooKassa error: {response.status}, {await response.text()}")
-                return None
-
-async def check_yookassa_payment(payment_id):
-    """Проверка статуса платежа в ЮKassa"""
-    url = f"https://api.yookassa.ru/v3/payments/{payment_id}"
-    
-    auth_string = f"{YOOKASSA_SHOP_ID}:{YOOKASSA_SECRET_KEY}"
-    auth_bytes = auth_string.encode('utf-8')
-    auth_b64 = base64.b64encode(auth_bytes).decode('utf-8')
-    
-    headers = {
-        "Authorization": f"Basic {auth_b64}"
-    }
-    
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url, headers=headers) as response:
-            if response.status == 200:
-                result = await response.json()
-                return result
-            else:
-                logging.error(f"YooKassa check error: {response.status}")
-                return None
-
 # ========================================
 # 🆕 НОВЫЕ КЛАВИАТУРЫ С ПРОГРЕВОМ
 # ========================================
