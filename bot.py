@@ -286,18 +286,17 @@ async def send_safe_funnel_message(user_id, text, reply_markup=None, parse_mode=
 
 async def send_invoice(user_id, tariff_code):
     """Отправка счета на оплату через Telegram Payments с фискализацией"""
-    tariff = TARIFFS[tariff_code]
+    import json
     
-    # Уникальный payload для отслеживания платежа
+    tariff = TARIFFS[tariff_code]
     payload = f"{user_id}_{tariff_code}_{int(datetime.now().timestamp())}"
     
-    # Цена в копейках (199₽ = 19900 копеек)
     price = types.LabeledPrice(
         label="К оплате",
-        amount=int(tariff['price'] * 100)  # Цена в копейках!
+        amount=int(tariff['price'] * 100)
     )
     
-    # 🆕 Данные для чека (обязательно для ЮKassa)
+    # Данные для чека (самозанятый/УСН)
     provider_data = {
         "receipt": {
             "items": [
@@ -305,15 +304,15 @@ async def send_invoice(user_id, tariff_code):
                     "description": f"Подписка: {tariff['name']}",
                     "quantity": "1",
                     "amount": {
-                        "value": str(tariff['price']),  # В РУБЛЯХ (не копейках!)
+                        "value": str(tariff['price']),
                         "currency": "RUB"
                     },
                     "vat_code": 6,
                     "payment_mode": "full_payment",
-                    "payment_subject": "service"  # "service" для услуг
+                    "payment_subject": "service"
                 }
             ],
-            "tax_system_code": 1  # 1 = УСН доход, измени если нужно
+            "tax_system_code": 1
         }
     }
     
@@ -329,16 +328,13 @@ async def send_invoice(user_id, tariff_code):
             currency="RUB",
             prices=[price],
             start_parameter="subscription",
-            # 🆕 Запрашиваем email для чека (пользователь введёт на форме оплаты)
             need_email=True,
             send_email_to_provider=True,
-            # Остальное не нужно
             need_name=False,
             need_phone_number=False,
             need_shipping_address=False,
             is_flexible=False,
-            # 🆕 Передаём данные для чека
-            provider_data=provider_data
+            provider_data=json.dumps(provider_data)
         )
         
         # Сохраняем в БД
