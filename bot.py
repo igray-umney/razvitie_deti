@@ -308,7 +308,7 @@ async def send_invoice(user_id, tariff_code):
                         "value": str(tariff['price']),  # В РУБЛЯХ (не копейках!)
                         "currency": "RUB"
                     },
-                    "vat_code": 1,  # НДС 20% (или измени на нужный)
+                    "vat_code": 6,
                     "payment_mode": "full_payment",
                     "payment_subject": "service"  # "service" для услуг
                 }
