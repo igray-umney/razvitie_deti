@@ -1,5 +1,5 @@
 # В начале bot.py
-YOOKASSA_PROVIDER_TOKEN = os.getenv('390540012:LIVE:83850')  # Токен от BotFather
+YOOKASSA_PROVIDER_TOKEN = os.getenv('YOOKASSA_PROVIDER_TOKEN', '390540012:LIVE:83850')
 
 import os
 import logging
