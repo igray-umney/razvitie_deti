@@ -285,7 +285,7 @@ async def send_safe_funnel_message(user_id, text, reply_markup=None, parse_mode=
 # ========================================
 
 async def send_invoice(user_id, tariff_code):
-    """Отправка счета на оплату через Telegram Payments"""
+    """Отправка счета на оплату через Telegram Payments с фискализацией"""
     tariff = TARIFFS[tariff_code]
     
     # Уникальный payload для отслеживания платежа
@@ -296,6 +296,26 @@ async def send_invoice(user_id, tariff_code):
         label="К оплате",
         amount=int(tariff['price'] * 100)  # Цена в копейках!
     )
+    
+    # 🆕 Данные для чека (обязательно для ЮKassa)
+    provider_data = {
+        "receipt": {
+            "items": [
+                {
+                    "description": f"Подписка: {tariff['name']}",
+                    "quantity": "1",
+                    "amount": {
+                        "value": str(tariff['price']),  # В РУБЛЯХ (не копейках!)
+                        "currency": "RUB"
+                    },
+                    "vat_code": 1,  # НДС 20% (или измени на нужный)
+                    "payment_mode": "full_payment",
+                    "payment_subject": "service"  # "service" для услуг
+                }
+            ],
+            "tax_system_code": 1  # 1 = УСН доход, измени если нужно
+        }
+    }
     
     try:
         await bot.send_invoice(
@@ -309,11 +329,16 @@ async def send_invoice(user_id, tariff_code):
             currency="RUB",
             prices=[price],
             start_parameter="subscription",
+            # 🆕 Запрашиваем email для чека (пользователь введёт на форме оплаты)
+            need_email=True,
+            send_email_to_provider=True,
+            # Остальное не нужно
             need_name=False,
             need_phone_number=False,
-            need_email=False,
             need_shipping_address=False,
-            is_flexible=False
+            is_flexible=False,
+            # 🆕 Передаём данные для чека
+            provider_data=provider_data
         )
         
         # Сохраняем в БД
