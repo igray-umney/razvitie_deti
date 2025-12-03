@@ -1,3 +1,6 @@
+# В начале bot.py
+YOOKASSA_PROVIDER_TOKEN = os.getenv('390540012:LIVE:83850')  # Токен от BotFather
+
 import os
 import logging
 from datetime import datetime, timedelta
