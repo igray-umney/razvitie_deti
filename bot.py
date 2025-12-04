@@ -489,7 +489,7 @@ def get_new_user_menu():
     """🆕 Меню для НОВЫХ пользователей (с прогревом)"""
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🎥 Посмотреть примеры материалов", callback_data="show_demo")],
-        [InlineKeyboardButton(text="💬 Отзывы родителей", callback_data="show_reviews")],
+        [InlineKeyboardButton(text="⭐ 4.9/5 - Почему 87% продлевают?", callback_data="show_reviews")],
         [InlineKeyboardButton(text="💰 Что входит в подписку?", callback_data="faq_5")],
         [InlineKeyboardButton(text="🎁 Попробовать 7 дней БЕСПЛАТНО", callback_data="ready_for_trial")]
     ])
@@ -845,7 +845,7 @@ async def send_welcome_messages():
                 try:
                     keyboard = InlineKeyboardMarkup(inline_keyboard=[
                         [InlineKeyboardButton(text="🎥 Посмотреть примеры", callback_data="show_demo")],
-                        [InlineKeyboardButton(text="💬 Отзывы родителей", callback_data="show_reviews")],
+                        [InlineKeyboardButton(text="⭐ 4.9/5 - Почему 87% продлевают?", callback_data="show_reviews")],
                         [InlineKeyboardButton(text="🎁 Начать пробный период", callback_data="ready_for_trial")]
                     ])
                     
