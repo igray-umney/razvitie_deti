@@ -503,7 +503,7 @@ def get_tariffs_menu():
             callback_data="1month"
         )],
         [InlineKeyboardButton(
-            text=f"🔥 НАВСЕГДА - {TARIFFS['forever']['price']}₽ (ЛУЧШАЯ ЦЕНА)",
+            text=f"🔥 НАВСЕГДА - {TARIFFS['forever']['price']}₽ (Экономия 1789₽!)",
             callback_data="forever"
         )],
         [InlineKeyboardButton(text="❓ Вопросы", callback_data="faq")],
