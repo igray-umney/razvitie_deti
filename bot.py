@@ -941,6 +941,75 @@ async def send_welcome_messages():
             logging.error(f"Error in send_welcome_messages: {e}")
             await asyncio.sleep(60)
 
+async def remind_pending_payments():
+    """🆕 Фоновая задача: напоминание о неоплаченных инвойсах"""
+    logging.info("Pending payments reminder task started!")
+    
+    while True:
+        try:
+            await asyncio.sleep(300)  # Проверка каждые 5 минут
+            
+            conn = get_db_connection()
+            cur = conn.cursor()
+            
+            # Ищем платежи pending старше 1 часа
+            cur.execute('''
+                SELECT DISTINCT p.user_id, p.payment_id, p.tariff, p.amount
+                FROM payments p
+                WHERE p.status = 'pending'
+                  AND p.created_at < NOW() - INTERVAL '1 hour'
+                  AND p.created_at > NOW() - INTERVAL '2 hours'
+                  AND NOT EXISTS (
+                      SELECT 1 FROM funnel_messages fm
+                      WHERE fm.user_id = p.user_id
+                        AND fm.message_type = 'pending_reminder'
+                        AND fm.sent_at > NOW() - INTERVAL '24 hours'
+                  )
+            ''')
+            
+            pending_users = cur.fetchall()
+            cur.close()
+            conn.close()
+            
+            for payment in pending_users:
+                user_id = payment['user_id']
+                tariff = payment['tariff']
+                amount = payment['amount']
+                
+                try:
+                    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text="💳 Попробовать снова", callback_data=tariff)],
+                        [InlineKeyboardButton(text="❓ Проблемы с оплатой?", url="https://t.me/razvitie_dety")]
+                    ])
+                    
+                    success = await send_safe_funnel_message(
+                        user_id,
+                        "👋 Заметил что оплата не прошла\n\n"
+                        "Возможно возникли сложности?\n\n"
+                        "💡 **Частые проблемы:**\n"
+                        "• Не хватает денег на карте\n"
+                        "• Карта заблокирована для онлайн-покупок\n"
+                        "• Не пришёл SMS с кодом\n"
+                        "• Ошибка банка\n\n"
+                        "Могу помочь разобраться! 😊\n\n"
+                        "Или попробуй оплатить снова - "
+                        "иногда помогает:",
+                        reply_markup=keyboard
+                    )
+                    
+                    if success:
+                        mark_funnel_message_sent(user_id, 'pending_reminder')
+                        logging.info(f"Sent pending reminder to user {user_id}")
+                    
+                    await asyncio.sleep(0.1)
+                    
+                except Exception as e:
+                    logging.error(f"Error sending pending reminder to {user_id}: {e}")
+            
+        except Exception as e:
+            logging.error(f"Error in remind_pending_payments: {e}")
+            await asyncio.sleep(300)
+
 # ========================================
 # КОМАНДЫ И ОБРАБОТЧИКИ
 # ========================================
