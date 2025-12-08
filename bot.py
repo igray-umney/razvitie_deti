@@ -2016,6 +2016,7 @@ async def main():
     asyncio.create_task(check_and_remove_expired())
     asyncio.create_task(sales_funnel())
     asyncio.create_task(send_welcome_messages())
+    asyncio.create_task(remind_pending_payments())
     
     while True:
         try:
