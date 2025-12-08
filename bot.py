@@ -559,6 +559,30 @@ async def sales_funnel():
                             if success:
                                 mark_funnel_message_sent(user_id, 'day1')
                                 logging.info(f"Sent day1 message to user {user_id}")
+
+                    # 🆕 ДЕНЬ 2 (44-52 часа) - ЛАЙФХАК
+                    if 44 <= hours_since_registration < 52:
+                        if not get_funnel_message_sent(user_id, 'day2'):
+                            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                                [InlineKeyboardButton(text="📚 В группу", url=f"https://t.me/+{CHANNEL_ID}")],
+                                [InlineKeyboardButton(text="💬 Вопросы", url="https://t.me/razvitie_dety")]
+                            ])
+                            success = await send_safe_funnel_message(
+                                user_id,
+                                "👋 Привет!\n\n"
+                                "Прошло 2 дня - как впечатления?\n\n"
+                                "💡 **Лайфхак:**\n"
+                                "Родители которые занимаются УТРОМ (до садика/завтрака) "
+                                "видят результат быстрее!\n\n"
+                                "🎯 Ребёнок свежий, внимательный, усваивает лучше\n\n"
+                                "Попробуй завтра утром 15 минут - и увидишь разницу!\n\n"
+                                "P.S. Осталось 5 дней trial - успей протестировать "
+                                "разные материалы! 📚",
+                                reply_markup=keyboard
+                            )
+                            if success:
+                                mark_funnel_message_sent(user_id, 'day2')
+                                logging.info(f"Sent day2 message to user {user_id}")
                     
                     # ДЕНЬ 3 (68-76 часов) - СОЦИАЛЬНОЕ ДОКАЗАТЕЛЬСТВО
                     if 68 <= hours_since_registration < 76:
@@ -585,6 +609,36 @@ async def sales_funnel():
                             if success:
                                 mark_funnel_message_sent(user_id, 'day3')
                                 logging.info(f"Sent day3 message to user {user_id}")
+
+                    # 🆕 ДЕНЬ 4 (92-100 часов) - РЕЗУЛЬТАТЫ
+                    if 92 <= hours_since_registration < 100:
+                        if not get_funnel_message_sent(user_id, 'day4'):
+                            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                                [InlineKeyboardButton(text="💰 Посмотреть тарифы", callback_data="show_tariffs")],
+                                [InlineKeyboardButton(text="📚 Продолжить занятия", url=f"https://t.me/+{CHANNEL_ID}")]
+                            ])
+                            success = await send_safe_funnel_message(
+                                user_id,
+                                "🎉 **Половина пути пройдена!**\n\n"
+                                "Ты с нами уже 4 дня - заметил изменения?\n\n"
+                                "📊 **Обычно к 4му дню родители видят:**\n"
+                                "• Ребёнок стал усидчивее (+30%)\n"
+                                "• Выучил 3-5 новых букв/цифр\n"
+                                "• САМ просит позаниматься!\n\n"
+                                "У тебя так же? 😊\n\n"
+                                "💡 **Осталось 3 дня - самое время:**\n"
+                                "1. Попробовать сложные материалы\n"
+                                "2. Найти любимые темы ребёнка\n"
+                                "3. Составить план после trial\n\n"
+                                "⚠️ **После trial цена вырастет:**\n"
+                                "• Сейчас: 199₽/мес или 599₽ навсегда\n"
+                                "• Потом: 499₽/мес или 2990₽ навсегда\n\n"
+                                "Успей оформить со скидкой! 🔥",
+                                reply_markup=keyboard
+                            )
+                            if success:
+                                mark_funnel_message_sent(user_id, 'day4')
+                                logging.info(f"Sent day4 message to user {user_id}")
                     
                     # ДЕНЬ 5 (116-124 часа) - ОТЗЫВЫ + СРОЧНОСТЬ
                     if 116 <= hours_since_registration < 124:
