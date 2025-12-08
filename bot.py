@@ -488,8 +488,8 @@ def get_main_menu():
 def get_new_user_menu():
     """🆕 Меню для НОВЫХ пользователей (с прогревом)"""
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🎥 Посмотреть примеры материалов", callback_data="show_demo")],
         [InlineKeyboardButton(text="⭐ 4.9/5 - Почему 87% продлевают?", callback_data="show_reviews")],
+        [InlineKeyboardButton(text="🎥 Посмотреть примеры материалов", callback_data="show_demo")],
         [InlineKeyboardButton(text="💰 Что входит в подписку?", callback_data="faq_5")],
         [InlineKeyboardButton(text="🎁 Попробовать 7 дней БЕСПЛАТНО", callback_data="ready_for_trial")]
     ])
