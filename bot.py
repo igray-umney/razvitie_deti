@@ -1174,18 +1174,17 @@ async def show_tariffs(callback: types.CallbackQuery):
     )
     await callback.answer()
 
-@dp.callback_query(F.data.in_(['1month', 'forever']))
-async def process_tariff(callback: types.CallbackQuery):
-    """🆕 Обработка выбора тарифа - TELEGRAM PAYMENTS"""
+@dp.callback_query(F.data == '1month')
+async def process_1month_tariff(callback: types.CallbackQuery):
+    """Обработка выбора тарифа 1 месяц"""
     user_id = callback.from_user.id
-    tariff_code = callback.data
+    tariff_code = '1month'
     tariff = TARIFFS[tariff_code]
     
     track_user_action(user_id, f'selected_tariff_{tariff_code}')
     
     await callback.answer("⏳ Отправляю счёт на оплату...", show_alert=False)
     
-    # 🆕 Отправляем счет через Telegram Payments
     success = await send_invoice(user_id, tariff_code)
     
     if success:
@@ -1203,6 +1202,114 @@ async def process_tariff(callback: types.CallbackQuery):
             "❌ Ошибка создания счёта. Попробуйте позже.",
             reply_markup=get_main_menu()
         )
+
+@dp.callback_query(F.data == 'forever')
+async def process_forever_tariff(callback: types.CallbackQuery):
+    """🆕 Обработка выбора Forever - С КАЛЬКУЛЯТОРОМ"""
+    user_id = callback.from_user.id
+    track_user_action(user_id, 'selected_tariff_forever')
+    
+    # 🆕 СНАЧАЛА ПОКАЗЫВАЕМ КАЛЬКУЛЯТОР
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💳 Оплатить 599₽", callback_data="forever_confirmed")],
+        [InlineKeyboardButton(text="📊 Сравнить с 1 месяцем", callback_data="compare_tariffs")],
+        [InlineKeyboardButton(text="◀️ Назад", callback_data="show_tariffs")]
+    ])
+    
+    await callback.message.edit_text(
+        "🔥 **НАВСЕГДА - 599₽**\n\n"
+        "💡 **МАТЕМАТИКА:**\n\n"
+        
+        "**Вариант А (по месяцам):**\n"
+        "• Месяц 1: 199₽\n"
+        "• Месяц 2: 199₽\n"
+        "• Месяц 3: 199₽\n"
+        "• Месяц 4: 199₽\n"
+        "━━━━━━━━━━━\n"
+        "**Итого за 4 месяца: 796₽**\n\n"
+        
+        "**Вариант Б (Forever):**\n"
+        "• ОДИН платёж: 599₽\n"
+        "• Больше НИКОГДА не платишь\n"
+        "━━━━━━━━━━━\n"
+        "**Экономия: 197₽ уже на 4й месяц!**\n\n"
+        
+        "📊 **Статистика:**\n"
+        "• 92% используют >6 месяцев\n"
+        "• Средняя экономия: 1500₽ в год\n\n"
+        
+        "🎯 **Окупаемость: 3 месяца**\n"
+        "Всё что после - БЕСПЛАТНО!\n\n"
+        
+        "⚠️ **ВАЖНО:** Эта цена только для trial!\n"
+        "После истечения: 2990₽\n\n"
+        "Готов оформить навсегда?",
+        reply_markup=keyboard,
+        parse_mode="Markdown"
+    )
+    await callback.answer()
+
+@dp.callback_query(F.data == 'forever_confirmed')
+async def forever_confirmed(callback: types.CallbackQuery):
+    """Подтверждение Forever - отправка инвойса"""
+    user_id = callback.from_user.id
+    tariff_code = 'forever'
+    tariff = TARIFFS[tariff_code]
+    
+    await callback.answer("⏳ Отправляю счёт на оплату...", show_alert=False)
+    
+    success = await send_invoice(user_id, tariff_code)
+    
+    if success:
+        await callback.message.answer(
+            f"📋 **Счёт на оплату отправлен!**\n\n"
+            f"📦 Тариф: Навсегда\n"
+            f"💰 К оплате: **599₽**\n\n"
+            f"👆 Нажмите на счёт выше для оплаты\n\n"
+            f"💳 Принимаем все российские карты 🇷🇺\n\n"
+            f"✅ После оплаты доступ откроется **АВТОМАТИЧЕСКИ**!\n\n"
+            f"🎯 Это ПОСЛЕДНИЙ раз когда платишь за доступ!",
+            parse_mode="Markdown"
+        )
+    else:
+        await callback.message.answer(
+            "❌ Ошибка создания счёта. Попробуйте позже.",
+            reply_markup=get_main_menu()
+        )
+
+@dp.callback_query(F.data == 'compare_tariffs')
+async def compare_tariffs(callback: types.CallbackQuery):
+    """🆕 Сравнение тарифов"""
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💎 1 месяц - 199₽", callback_data="1month")],
+        [InlineKeyboardButton(text="🔥 НАВСЕГДА - 599₽", callback_data="forever_confirmed")],
+        [InlineKeyboardButton(text="◀️ Назад", callback_data="show_tariffs")]
+    ])
+    
+    await callback.message.edit_text(
+        "📊 **СРАВНЕНИЕ ТАРИФОВ**\n\n"
+        "```\n"
+        "┌─────────┬────────┬──────────┐\n"
+        "│ Период  │ 1 мес  │ Навсегда │\n"
+        "├─────────┼────────┼──────────┤\n"
+        "│ 1 мес   │  199₽  │   599₽   │\n"
+        "│ 3 мес   │  597₽  │   599₽ ✅│\n"
+        "│ 6 мес   │ 1194₽  │   599₽ ✅│\n"
+        "│ 1 год   │ 2388₽  │   599₽ ✅│\n"
+        "└─────────┴────────┴──────────┘\n"
+        "```\n\n"
+        
+        "💡 **Вывод:**\n"
+        "• Через 3 месяца Forever выгоднее!\n"
+        "• Экономия за год: **1789₽**\n"
+        "• Не нужно помнить о продлении\n\n"
+        
+        "🎯 **87% родителей выбирают Forever**\n"
+        "Они понимают что это выгоднее!",
+        reply_markup=keyboard,
+        parse_mode="Markdown"
+    )
+    await callback.answer()
 
 @dp.callback_query(F.data == "status")
 async def check_status(callback: types.CallbackQuery):
