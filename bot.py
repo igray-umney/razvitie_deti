@@ -1884,6 +1884,555 @@ async def admin_stats(message: types.Message):
     
     await message.answer(stats_text, parse_mode="HTML")
 
+# ========================================
+# 📊 РАСШИРЕННЫЕ КОМАНДЫ СТАТИСТИКИ
+# ========================================
+# Добавить в bot.py ПОСЛЕ команды /stats (строка ~1650)
+# ПЕРЕД разделом "ЗАПУСК БОТА"
+
+@dp.message(Command("month"))
+async def admin_month_stats(message: types.Message):
+    """📊 Статистика за последние 30 дней"""
+    if message.from_user.id != ADMIN_ID:
+        return
+    
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    # Воронка за месяц
+    cur.execute('''SELECT action, COUNT(*) as count 
+                   FROM funnel_analytics 
+                   WHERE created_at >= NOW() - INTERVAL '30 days'
+                   GROUP BY action
+                   ORDER BY count DESC''')
+    month_stats = cur.fetchall()
+    
+    # Новые юзеры за месяц
+    cur.execute('''SELECT COUNT(*) as count 
+                   FROM users 
+                   WHERE created_at >= NOW() - INTERVAL '30 days' ''')
+    new_users_month = cur.fetchone()['count']
+    
+    # Платежи за месяц
+    cur.execute('''SELECT 
+                   COUNT(*) as count,
+                   COALESCE(SUM(amount), 0) as revenue,
+                   COUNT(*) FILTER (WHERE tariff = '1month') as month_count,
+                   COUNT(*) FILTER (WHERE tariff = 'forever') as forever_count
+                   FROM payments 
+                   WHERE created_at >= NOW() - INTERVAL '30 days'
+                   AND status = 'completed' ''')
+    payments_month = cur.fetchone()
+    
+    cur.close()
+    conn.close()
+    
+    stats_text = f"""📊 <b>СТАТИСТИКА ЗА 30 ДНЕЙ</b>
+
+👥 Новых пользователей: {new_users_month}
+💰 Платежей: {payments_month['count']}
+   • 1 месяц: {payments_month['month_count']}
+   • Forever: {payments_month['forever_count']}
+💵 Доход: {payments_month['revenue']}₽
+
+📈 <b>Воронка за месяц:</b>
+"""
+    
+    for stat in month_stats:
+        stats_text += f"• {stat['action']}: {stat['count']}\n"
+    
+    # Конверсии
+    started = next((s['count'] for s in month_stats if s['action'] == 'started_bot'), 0)
+    trial = next((s['count'] for s in month_stats if s['action'] == 'activated_trial'), 0)
+    payments = payments_month['count']
+    
+    if started > 0:
+        trial_conv = round(100 * trial / started, 1)
+        payment_conv = round(100 * payments / started, 1)
+        trial_to_pay = round(100 * payments / trial, 1) if trial > 0 else 0
+        
+        stats_text += f"\n💡 <b>Конверсии:</b>\n"
+        stats_text += f"• Start → Trial: {trial_conv}%\n"
+        stats_text += f"• Trial → Payment: {trial_to_pay}%\n"
+        stats_text += f"• Start → Payment: {payment_conv}%\n"
+    
+    await message.answer(stats_text, parse_mode="HTML")
+
+@dp.message(Command("weeks"))
+async def admin_weeks_stats(message: types.Message):
+    """📊 Статистика по неделям (последние 4 недели)"""
+    if message.from_user.id != ADMIN_ID:
+        return
+    
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    stats_text = "📊 <b>СТАТИСТИКА ПО НЕДЕЛЯМ</b>\n\n"
+    
+    for week in range(4):
+        start_days = (week + 1) * 7
+        end_days = week * 7
+        
+        # Воронка за неделю
+        cur.execute('''SELECT 
+                       COUNT(*) FILTER (WHERE action = 'started_bot') as started,
+                       COUNT(*) FILTER (WHERE action = 'activated_trial') as trial,
+                       COUNT(*) FILTER (WHERE action LIKE 'completed_payment%%') as payments
+                       FROM funnel_analytics 
+                       WHERE created_at >= NOW() - INTERVAL '%s days'
+                       AND created_at < NOW() - INTERVAL '%s days' ''' % (start_days, end_days))
+        week_data = cur.fetchone()
+        
+        # Доход за неделю
+        cur.execute('''SELECT COALESCE(SUM(amount), 0) as revenue
+                       FROM payments 
+                       WHERE created_at >= NOW() - INTERVAL '%s days'
+                       AND created_at < NOW() - INTERVAL '%s days'
+                       AND status = 'completed' ''' % (start_days, end_days))
+        revenue = cur.fetchone()['revenue']
+        
+        # Определяем дату начала недели
+        week_start = (datetime.now() - timedelta(days=start_days)).strftime('%d.%m')
+        week_end = (datetime.now() - timedelta(days=end_days)).strftime('%d.%m')
+        
+        conv = round(100 * week_data['payments'] / week_data['started'], 1) if week_data['started'] > 0 else 0
+        
+        stats_text += f"<b>Неделя {4-week} ({week_start}-{week_end}):</b>\n"
+        stats_text += f"  👥 Started: {week_data['started']}\n"
+        stats_text += f"  🎁 Trial: {week_data['trial']}\n"
+        stats_text += f"  💰 Payments: {week_data['payments']} ({conv}%)\n"
+        stats_text += f"  💵 Доход: {revenue}₽\n\n"
+    
+    cur.close()
+    conn.close()
+    
+    await message.answer(stats_text, parse_mode="HTML")
+
+@dp.message(Command("days"))
+async def admin_days_stats(message: types.Message):
+    """📊 Детальная статистика по дням (последние 7)"""
+    if message.from_user.id != ADMIN_ID:
+        return
+    
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    stats_text = "📊 <b>СТАТИСТИКА ПО ДНЯМ</b>\n\n"
+    
+    for day in range(7):
+        # Воронка за день
+        cur.execute('''SELECT 
+                       COUNT(*) FILTER (WHERE action = 'started_bot') as started,
+                       COUNT(*) FILTER (WHERE action = 'viewed_demo') as demo,
+                       COUNT(*) FILTER (WHERE action = 'activated_trial') as trial,
+                       COUNT(*) FILTER (WHERE action LIKE 'completed_payment%%') as payments
+                       FROM funnel_analytics 
+                       WHERE created_at >= CURRENT_DATE - INTERVAL '%s days'
+                       AND created_at < CURRENT_DATE - INTERVAL '%s days' ''' % (day + 1, day))
+        day_data = cur.fetchone()
+        
+        # Доход за день
+        cur.execute('''SELECT COALESCE(SUM(amount), 0) as revenue
+                       FROM payments 
+                       WHERE created_at >= CURRENT_DATE - INTERVAL '%s days'
+                       AND created_at < CURRENT_DATE - INTERVAL '%s days'
+                       AND status = 'completed' ''' % (day + 1, day))
+        revenue = cur.fetchone()['revenue']
+        
+        date_str = (datetime.now() - timedelta(days=day)).strftime('%d.%m (%a)')
+        
+        stats_text += f"<b>{date_str}:</b>\n"
+        stats_text += f"  👥 {day_data['started']} → "
+        stats_text += f"🎥 {day_data['demo']} → "
+        stats_text += f"🎁 {day_data['trial']} → "
+        stats_text += f"💰 {day_data['payments']} = {revenue}₽\n"
+    
+    cur.close()
+    conn.close()
+    
+    await message.answer(stats_text, parse_mode="HTML")
+
+@dp.message(Command("alltime"))
+async def admin_alltime_stats(message: types.Message):
+    """📊 Статистика за ВСЁ время"""
+    if message.from_user.id != ADMIN_ID:
+        return
+    
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    # Общая воронка
+    cur.execute('''SELECT action, COUNT(*) as count 
+                   FROM funnel_analytics 
+                   GROUP BY action
+                   ORDER BY count DESC''')
+    alltime_stats = cur.fetchall()
+    
+    # Все юзеры
+    cur.execute('SELECT COUNT(*) as count FROM users')
+    total_users = cur.fetchone()['count']
+    
+    # Все платежи
+    cur.execute('''SELECT 
+                   COUNT(*) as count,
+                   COALESCE(SUM(amount), 0) as revenue,
+                   COUNT(*) FILTER (WHERE tariff = '1month') as month_count,
+                   COUNT(*) FILTER (WHERE tariff = 'forever') as forever_count,
+                   AVG(amount) as avg_check
+                   FROM payments 
+                   WHERE status = 'completed' ''')
+    alltime_payments = cur.fetchone()
+    
+    # Первая и последняя активность
+    cur.execute('SELECT MIN(created_at) as first, MAX(created_at) as last FROM funnel_analytics')
+    dates = cur.fetchone()
+    
+    days_active = (dates['last'] - dates['first']).days + 1
+    
+    cur.close()
+    conn.close()
+    
+    stats_text = f"""📊 <b>СТАТИСТИКА ЗА ВСЁ ВРЕМЯ</b>
+
+⏰ Период: {dates['first'].strftime('%d.%m.%Y')} - {dates['last'].strftime('%d.%m.%Y')}
+📅 Дней активности: {days_active}
+
+👥 Всего пользователей: {total_users}
+💰 Всего платежей: {alltime_payments['count']}
+   • 1 месяц: {alltime_payments['month_count']}
+   • Forever: {alltime_payments['forever_count']}
+💵 Общий доход: {alltime_payments['revenue']}₽
+💳 Средний чек: {round(alltime_payments['avg_check'], 2)}₽
+
+📈 <b>Средние показатели:</b>
+• Юзеров/день: {round(total_users / days_active, 1)}
+• Платежей/день: {round(alltime_payments['count'] / days_active, 1)}
+• Доход/день: {round(alltime_payments['revenue'] / days_active, 2)}₽
+
+📊 <b>Топ-10 событий:</b>
+"""
+    
+    for stat in alltime_stats[:10]:
+        stats_text += f"• {stat['action']}: {stat['count']}\n"
+    
+    await message.answer(stats_text, parse_mode="HTML")
+
+@dp.message(Command("compare"))
+async def admin_compare_stats(message: types.Message):
+    """📊 Сравнение: эта неделя vs прошлая"""
+    if message.from_user.id != ADMIN_ID:
+        return
+    
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    # Эта неделя
+    cur.execute('''SELECT 
+                   COUNT(*) FILTER (WHERE action = 'started_bot') as started,
+                   COUNT(*) FILTER (WHERE action = 'activated_trial') as trial,
+                   COUNT(*) FILTER (WHERE action LIKE 'completed_payment%%') as payments
+                   FROM funnel_analytics 
+                   WHERE created_at >= NOW() - INTERVAL '7 days' ''')
+    this_week = cur.fetchone()
+    
+    cur.execute('''SELECT COALESCE(SUM(amount), 0) as revenue
+                   FROM payments 
+                   WHERE created_at >= NOW() - INTERVAL '7 days'
+                   AND status = 'completed' ''')
+    this_revenue = cur.fetchone()['revenue']
+    
+    # Прошлая неделя
+    cur.execute('''SELECT 
+                   COUNT(*) FILTER (WHERE action = 'started_bot') as started,
+                   COUNT(*) FILTER (WHERE action = 'activated_trial') as trial,
+                   COUNT(*) FILTER (WHERE action LIKE 'completed_payment%%') as payments
+                   FROM funnel_analytics 
+                   WHERE created_at >= NOW() - INTERVAL '14 days'
+                   AND created_at < NOW() - INTERVAL '7 days' ''')
+    last_week = cur.fetchone()
+    
+    cur.execute('''SELECT COALESCE(SUM(amount), 0) as revenue
+                   FROM payments 
+                   WHERE created_at >= NOW() - INTERVAL '14 days'
+                   AND created_at < NOW() - INTERVAL '7 days'
+                   AND status = 'completed' ''')
+    last_revenue = cur.fetchone()['revenue']
+    
+    cur.close()
+    conn.close()
+    
+    # Расчёт изменений
+    def calc_change(current, previous):
+        if previous == 0:
+            return "+∞%" if current > 0 else "0%"
+        change = round(100 * (current - previous) / previous, 1)
+        return f"+{change}%" if change > 0 else f"{change}%"
+    
+    started_change = calc_change(this_week['started'], last_week['started'])
+    trial_change = calc_change(this_week['trial'], last_week['trial'])
+    payments_change = calc_change(this_week['payments'], last_week['payments'])
+    revenue_change = calc_change(this_revenue, last_revenue)
+    
+    # Эмодзи для изменений
+    def get_emoji(change_str):
+        if change_str.startswith('+'):
+            return '📈'
+        elif change_str.startswith('-'):
+            return '📉'
+        else:
+            return '➡️'
+    
+    stats_text = f"""📊 <b>СРАВНЕНИЕ: ЭТА vs ПРОШЛАЯ НЕДЕЛЯ</b>
+
+👥 <b>Started Bot:</b>
+  • Эта неделя: {this_week['started']}
+  • Прошлая: {last_week['started']}
+  • Изменение: {get_emoji(started_change)} {started_change}
+
+🎁 <b>Activated Trial:</b>
+  • Эта неделя: {this_week['trial']}
+  • Прошлая: {last_week['trial']}
+  • Изменение: {get_emoji(trial_change)} {trial_change}
+
+💰 <b>Payments:</b>
+  • Эта неделя: {this_week['payments']}
+  • Прошлая: {last_week['payments']}
+  • Изменение: {get_emoji(payments_change)} {payments_change}
+
+💵 <b>Доход:</b>
+  • Эта неделя: {this_revenue}₽
+  • Прошлая: {last_revenue}₽
+  • Изменение: {get_emoji(revenue_change)} {revenue_change}
+"""
+    
+    await message.answer(stats_text, parse_mode="HTML")
+
+@dp.message(Command("growth"))
+async def admin_growth_stats(message: types.Message):
+    """📊 График роста по дням"""
+    if message.from_user.id != ADMIN_ID:
+        return
+    
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    stats_text = "📈 <b>ГРАФИК РОСТА (последние 14 дней)</b>\n\n"
+    
+    max_started = 0
+    days_data = []
+    
+    # Собираем данные
+    for day in range(13, -1, -1):
+        cur.execute('''SELECT 
+                       COUNT(*) FILTER (WHERE action = 'started_bot') as started
+                       FROM funnel_analytics 
+                       WHERE created_at >= CURRENT_DATE - INTERVAL '%s days'
+                       AND created_at < CURRENT_DATE - INTERVAL '%s days' ''' % (day + 1, day))
+        started = cur.fetchone()['started']
+        days_data.append(started)
+        max_started = max(max_started, started)
+    
+    # Рисуем график
+    for idx, count in enumerate(days_data):
+        date = (datetime.now() - timedelta(days=13-idx)).strftime('%d.%m')
+        bars = '█' * int(20 * count / max_started) if max_started > 0 else ''
+        stats_text += f"{date} {bars} {count}\n"
+    
+    cur.close()
+    conn.close()
+    
+    await message.answer(stats_text, parse_mode="HTML")
+
+@dp.message(Command("today"))
+async def admin_today_stats(message: types.Message):
+    """📊 Статистика ЗА СЕГОДНЯ"""
+    if message.from_user.id != ADMIN_ID:
+        return
+    
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    # Статистика за сегодня
+    cur.execute('''SELECT action, COUNT(*) as count 
+                   FROM funnel_analytics 
+                   WHERE created_at >= CURRENT_DATE
+                   GROUP BY action
+                   ORDER BY count DESC''')
+    today_stats = cur.fetchall()
+    
+    # Новые юзеры сегодня
+    cur.execute('''SELECT COUNT(*) as count 
+                   FROM users 
+                   WHERE created_at >= CURRENT_DATE''')
+    new_users_today = cur.fetchone()['count']
+    
+    # Платежи сегодня
+    cur.execute('''SELECT 
+                   COUNT(*) as count,
+                   COALESCE(SUM(amount), 0) as revenue
+                   FROM payments 
+                   WHERE created_at >= CURRENT_DATE
+                   AND status = 'completed' ''')
+    payments_today = cur.fetchone()
+    
+    cur.close()
+    conn.close()
+    
+    stats_text = f"""📊 <b>Статистика ЗА СЕГОДНЯ</b> ({datetime.now().strftime('%d.%m.%Y')})
+
+👥 Новых пользователей: {new_users_today}
+💰 Платежей: {payments_today['count']}
+💵 Доход: {payments_today['revenue']}₽
+
+📈 <b>Воронка за сегодня:</b>
+"""
+    
+    for stat in today_stats:
+        stats_text += f"• {stat['action']}: {stat['count']}\n"
+    
+    await message.answer(stats_text, parse_mode="HTML")
+
+@dp.message(Command("yesterday"))
+async def admin_yesterday_stats(message: types.Message):
+    """📊 Статистика ЗА ВЧЕРА"""
+    if message.from_user.id != ADMIN_ID:
+        return
+    
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    # Статистика за вчера
+    cur.execute('''SELECT action, COUNT(*) as count 
+                   FROM funnel_analytics 
+                   WHERE created_at >= CURRENT_DATE - INTERVAL '1 day'
+                   AND created_at < CURRENT_DATE
+                   GROUP BY action
+                   ORDER BY count DESC''')
+    yesterday_stats = cur.fetchall()
+    
+    # Новые юзеры вчера
+    cur.execute('''SELECT COUNT(*) as count 
+                   FROM users 
+                   WHERE created_at >= CURRENT_DATE - INTERVAL '1 day'
+                   AND created_at < CURRENT_DATE''')
+    new_users_yesterday = cur.fetchone()['count']
+    
+    # Платежи вчера
+    cur.execute('''SELECT 
+                   COUNT(*) as count,
+                   COALESCE(SUM(amount), 0) as revenue
+                   FROM payments 
+                   WHERE created_at >= CURRENT_DATE - INTERVAL '1 day'
+                   AND created_at < CURRENT_DATE
+                   AND status = 'completed' ''')
+    payments_yesterday = cur.fetchone()
+    
+    yesterday_date = (datetime.now() - timedelta(days=1)).strftime('%d.%m.%Y')
+    
+    cur.close()
+    conn.close()
+    
+    stats_text = f"""📊 <b>Статистика ЗА ВЧЕРА</b> ({yesterday_date})
+
+👥 Новых пользователей: {new_users_yesterday}
+💰 Платежей: {payments_yesterday['count']}
+💵 Доход: {payments_yesterday['revenue']}₽
+
+📈 <b>Воронка за вчера:</b>
+"""
+    
+    for stat in yesterday_stats:
+        stats_text += f"• {stat['action']}: {stat['count']}\n"
+    
+    await message.answer(stats_text, parse_mode="HTML")
+
+@dp.message(Command("export"))
+async def export_stats(message: types.Message):
+    """📥 Экспорт всех данных в CSV"""
+    if message.from_user.id != ADMIN_ID:
+        return
+    
+    await message.answer("⏳ Формирую CSV файл...")
+    
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    # Экспортируем воронку по дням
+    cur.execute('''SELECT 
+                   DATE(created_at) as date,
+                   action,
+                   COUNT(*) as count
+                   FROM funnel_analytics
+                   GROUP BY DATE(created_at), action
+                   ORDER BY date DESC, action''')
+    
+    data = cur.fetchall()
+    cur.close()
+    conn.close()
+    
+    # Создаём CSV
+    import csv
+    import io
+    
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(['Date', 'Action', 'Count'])
+    
+    for row in data:
+        writer.writerow([row['date'], row['action'], row['count']])
+    
+    # Отправляем файл
+    output.seek(0)
+    from aiogram.types import BufferedInputFile
+    
+    await message.answer_document(
+        BufferedInputFile(
+            output.getvalue().encode('utf-8'),
+            filename=f"stats_{datetime.now().strftime('%Y%m%d')}.csv"
+        ),
+        caption="📊 Экспорт статистики за всё время"
+    )
+
+# ========================================
+# 📋 СПРАВКА ПО КОМАНДАМ
+# ========================================
+
+@dp.message(Command("help_stats"))
+async def help_stats(message: types.Message):
+    """📚 Справка по командам статистики"""
+    if message.from_user.id != ADMIN_ID:
+        return
+    
+    help_text = """📚 <b>СПРАВКА ПО КОМАНДАМ СТАТИСТИКИ</b>
+
+🎯 <b>Основные:</b>
+/stats - Статистика за последние 7 дней (скользящее окно)
+/today - Только за сегодня
+/yesterday - Только за вчера
+
+📊 <b>Периоды:</b>
+/days - По дням (последние 7)
+/weeks - По неделям (последние 4)
+/month - За последние 30 дней
+/alltime - За всё время
+
+📈 <b>Аналитика:</b>
+/compare - Сравнение этой и прошлой недели
+/growth - График роста за 14 дней
+
+💾 <b>Экспорт:</b>
+/export - Скачать CSV со всей статистикой
+
+💡 <b>Полезные команды:</b>
+/checkdb - Диагностика базы данных
+/cleardb - Очистить БД (осторожно!)
+
+❓ <b>Вопросы?</b>
+Пиши в @razvitie_dety
+"""
+    
+    await message.answer(help_text, parse_mode="HTML")
+
 @dp.message(Command("cleardb"))
 async def admin_clear_db(message: types.Message):
     """Очистка базы данных (только для админа)"""
